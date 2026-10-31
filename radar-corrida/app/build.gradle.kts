@@ -21,7 +21,7 @@ android {
         minSdk = 22          // Android 5.1+: roda em celulares e tablets antigos
         targetSdk = 35
         versionCode = buildNumber
-        versionName = "0.3.$buildNumber"
+        versionName = "0.4.$buildNumber"
     }
 
     signingConfigs {
@@ -51,7 +51,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    // Sem dependências de bibliotecas no app: nada de AndroidX, Kotlin ou Google Play Services.
+    // Única dependência: ML Kit (leitura de texto da tela), na versão que usa o modelo do
+    // Google Play Services — o APK cresce pouco porque o modelo não vem embutido.
     dependenciesInfo {
         includeInApk = false
         includeInBundle = false
@@ -59,5 +60,6 @@ android {
 }
 
 dependencies {
+    implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
     testImplementation("junit:junit:4.13.2")
 }

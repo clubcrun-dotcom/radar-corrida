@@ -151,6 +151,16 @@ final class OverlayCard {
 
     boolean isShowing() { return attached; }
 
+    /** Área da etiqueta na tela (para a leitura por imagem não ler a própria etiqueta). */
+    android.graphics.Rect screenRect() {
+        if (!attached || root.getWidth() == 0) return null;
+        int[] xy = new int[2];
+        root.getLocationOnScreen(xy);
+        int m = dp(8);
+        return new android.graphics.Rect(xy[0] - m, xy[1] - m,
+                xy[0] + root.getWidth() + m, xy[1] + root.getHeight() + m);
+    }
+
     private WindowManager.LayoutParams params(int yDp) {
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,

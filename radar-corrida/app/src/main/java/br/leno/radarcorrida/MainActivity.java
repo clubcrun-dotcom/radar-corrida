@@ -44,7 +44,7 @@ public class MainActivity extends Activity {
     private RadioButton ruleAll, ruleAny;
     private CheckBox pIncludePickup;
     private EditText overlayY, packages, simInput;
-    private CheckBox debug, discovery;
+    private CheckBox debug, discovery, ocrBox;
 
     private List<Profile> profiles;
     private int shown;
@@ -85,6 +85,10 @@ public class MainActivity extends Activity {
         t.setText("O Radar de Corrida usa o serviço de Acessibilidade do Android para LER o texto "
                 + "das ofertas que aparecem na tela da Uber, 99 e inDrive: valor, distância, tempo "
                 + "e endereço de destino.\n\n"
+                + "Quando o app de corrida não disponibiliza esse texto (caso da Uber), o Radar faz "
+                + "uma CAPTURA DA TELA, só enquanto o app de corrida está aberto, e lê os números da "
+                + "imagem no próprio aparelho. A imagem fica só na memória e é descartada na hora: "
+                + "não é salva nem enviada.\n\n"
                 + "• Isso é usado só para calcular R$/km, R$/hora e lucro e mostrar a etiqueta.\n"
                 + "• Ele lê apenas os apps da lista de apps monitorados.\n"
                 + "• Ele NÃO toca, aceita nem recusa corridas. A decisão é sempre sua.\n"
@@ -233,6 +237,8 @@ public class MainActivity extends Activity {
 
         // ---- Diagnóstico ----
         title("Teste e diagnóstico", 18);
+        ocrBox = check("Leitura por imagem (necessária para a Uber; usa um pouco mais de bateria)",
+                sp.getBoolean(Prefs.K_OCR, true));
         debug = check("Modo diagnóstico: gravar textos das telas dos apps de corrida",
                 sp.getBoolean(Prefs.K_DEBUG, true));
         discovery = check("Modo descoberta: anotar nomes de apps que mostram R$ e km",
@@ -258,6 +264,17 @@ public class MainActivity extends Activity {
         refreshNames();
         showProfile(profiles.get(shown));
         updateCostInfo();
+
+        android.text.TextWatcher live = new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence c, int a, int b, int d) {}
+            @Override public void onTextChanged(CharSequence c, int a, int b, int d) {}
+            @Override public void afterTextChanged(android.text.Editable e) { updateCostInfo(); }
+        };
+        fuel.addTextChangedListener(live);
+        kmpl.addTextChangedListener(live);
+        extra.addTextChangedListener(live);
+        pMinProfit.addTextChangedListener(live);
+        pMinKm.addTextChangedListener(live);
     }
 
     @Override
@@ -357,6 +374,7 @@ public class MainActivity extends Activity {
         e.putString(Prefs.K_PACKAGES, packages.getText().toString());
         e.putBoolean(Prefs.K_DEBUG, debug.isChecked());
         e.putBoolean(Prefs.K_DISCOVERY, discovery.isChecked());
+        e.putBoolean(Prefs.K_OCR, ocrBox.isChecked());
         e.apply();
         collectProfile(profiles.get(shown));
         Prefs.saveProfiles(this, profiles, shown);
@@ -365,8 +383,14 @@ public class MainActivity extends Activity {
         if (notify) toast("Salvo · perfil ativo: " + profiles.get(shown).name);
     }
 
+    /** Recalcula a linha de custo a partir do que está digitado, sem precisar salvar. */
     private void updateCostInfo() {
         br.leno.radarcorrida.core.Settings s = Prefs.settings(this);
+        s.fuelPrice = Prefs.num(fuel.getText().toString(), s.fuelPrice);
+        s.kmPerLiter = Prefs.num(kmpl.getText().toString(), s.kmPerLiter);
+        s.extraCostPerKm = Prefs.num(extra.getText().toString(), s.extraCostPerKm);
+        if (pMinProfit != null) s.profile.minProfitPct = Math.min(99, Prefs.num(pMinProfit.getText().toString(), 0));
+        if (pMinKm != null) s.profile.minRsPerKm = Prefs.num(pMinKm.getText().toString(), 0);
         StringBuilder sb = new StringBuilder();
         sb.append("Custo atual: R$ ").append(Prefs.fmt(s.costPerKm())).append("/km");
         double pct = s.profile.minProfitPct;

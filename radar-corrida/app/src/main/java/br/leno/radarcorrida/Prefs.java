@@ -32,7 +32,8 @@ public final class Prefs {
     public static final String K_DEBUG = "debug_dump";
     public static final String K_DISCOVERY = "discovery";
     public static final String K_OVERLAY_Y = "overlay_y_dp";
-    public static final String K_CONSENT = "consent_v1";
+    public static final String K_CONSENT = "consent_v2";
+    public static final String K_OCR = "ocr_enabled";
 
     public static final String DEF_FUEL = "6,45";
     public static final String DEF_KMPL = "14";
@@ -145,6 +146,8 @@ public final class Prefs {
     public static boolean debug(Context c) { return sp(c).getBoolean(K_DEBUG, true); }
 
     public static boolean discovery(Context c) { return sp(c).getBoolean(K_DISCOVERY, false); }
+
+    public static boolean ocr(Context c) { return sp(c).getBoolean(K_OCR, true); }
 
     public static int overlayYdp(Context c) {
         return (int) num(sp(c).getString(K_OVERLAY_Y, "90"), 90);

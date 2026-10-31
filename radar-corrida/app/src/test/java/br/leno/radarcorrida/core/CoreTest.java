@@ -227,4 +227,64 @@ public class CoreTest {
         assertEquals(41.00, offers.get(1).fare, EPS);
         assertEquals(22, offers.get(1).tripKm, EPS);
     }
+
+    // ---- Tela real da Uber (31/10/2026, print do Leno) ----
+    @Test
+    public void realUber_2026_10_31() {
+        java.util.List<String> t = Arrays.asList(
+                "UberX", "R$ 17,48", "Est. de R$2,16/km",
+                "5 min • 1.1 km",
+                "R. Expedicionário Ernezito José das Chagas, Colubandê, São Gonçalo",
+                "4,92 (1429)",
+                "18 minutos • 7.0 km",
+                "Travessa Natividade Batista, 45, Santa Catarina, São Gonçalo",
+                "Tenho interesse");
+        java.util.List<Offer> offers = OfferParser.parseAll(t);
+        assertEquals(1, offers.size());
+        Offer o = offers.get(0);
+        assertEquals(17.48, o.fare, EPS);
+        assertEquals(1.1, o.pickupKm, EPS);
+        assertEquals(5, o.pickupMin, EPS);
+        assertEquals(7.0, o.tripKm, EPS);
+        assertEquals(18, o.tripMin, EPS);
+        assertEquals("Travessa Natividade Batista, 45, Santa Catarina, São Gonçalo", o.destination);
+
+        Settings s = new Settings();
+        s.fuelPrice = 6.50; s.kmPerLiter = 13; s.extraCostPerKm = 0.22;
+        s.profile = Profile.extraIncomeRoute();
+        s.profile.minProfitPct = 70;
+        Evaluation e = Calculator.evaluate(o, s);
+        assertEquals(2.16, e.rsPerKm, EPS);   // bate com o "Est. de R$2,16/km" da própria Uber
+        System.out.println("REAL: " + e.verdictLabel() + " | " + e.headline() + " | " + e.reasonsLine());
+    }
+
+    // ---- Texto como sai da leitura por imagem (OCR) ----
+    @Test
+    public void ocrStyle_bulletLostAndRS() {
+        java.util.List<Offer> offers = OfferParser.parseAll(Arrays.asList(
+                "15:23", "UberX", "RS 17,48", "Est. de R$2,16/km",
+                "5 min 1.1 km", "R. Expedicionário Ernezito José das",
+                "Chagas, Colubandê, São Gonçalo", "4,92 (1429)",
+                "18 minutos . 7.0 km", "Travessa Natividade Batista, 45,",
+                "Santa Catarina, São Gonçalo", "Tenho interesse"));
+        assertEquals(1, offers.size());
+        Offer o = offers.get(0);
+        assertEquals(17.48, o.fare, EPS);
+        assertEquals(1.1, o.pickupKm, EPS);
+        assertEquals(7.0, o.tripKm, EPS);
+        assertEquals(18, o.tripMin, EPS);
+        assertEquals("Travessa Natividade Batista, 45, | Santa Catarina, São Gonçalo", o.destination);
+    }
+
+    @Test
+    public void lowercaseRs_inAddress_isNotAFare() {
+        assertNull(OfferParser.parse(Arrays.asList("Rua Flowers 45", "18 minutos • 7.0 km")));
+    }
+
+    @Test
+    public void uberHomeScreen_isNotAnOffer() {
+        assertEquals(0, OfferParser.parseAll(Arrays.asList(
+                "Página inicial", "R$ 0,00", "HOJE", "Você está online",
+                "+R$ 3,25", "+R$ 3", "1-4 min", "1-3 min", "1-5 min")).size());
+    }
 }

@@ -22,9 +22,12 @@ public final class OfferParser {
 
     private static final String NUM = "(\\d{1,3}(?:\\.\\d{3})*(?:,\\d+)?|\\d+(?:[.,]\\d+)?)";
 
-    // R$ 23,94 | R$23,94 | +R$ 3,00 | R$ 1,52/km
+    /** Separador entre tempo e distância; opcional porque a leitura por imagem às vezes perde o "•". */
+    private static final String SEP = "[·•|\\-–.,*°]?";
+
+    // R$ 23,94 | R$23,94 | +R$ 3,00 | R$ 1,52/km | "RS 23,94" (leitura por imagem)
     private static final Pattern MONEY = Pattern.compile(
-            "(\\+\\s*)?R\\$\\s*" + NUM + "\\s*(/\\s*(?:km|h|hr|hora)|por\\s+(?:km|hora))?",
+            "(\\+\\s*)?(?-i:R\\s?[$S])\\s*" + NUM + "\\s*(/\\s*(?:km|h|hr|hora)|por\\s+(?:km|hora))?",
             Pattern.CASE_INSENSITIVE);
 
     // "1 h 5 min (52,4 km)" ou "5 min (800 m)"
@@ -34,12 +37,12 @@ public final class OfferParser {
 
     // "13,3 km · 23 min"
     private static final Pattern DIST_SEP_MIN = Pattern.compile(
-            NUM + "\\s*(km|m)\\s*[·•|\\-–]\\s*(?:(\\d+)\\s*h\\s*)?(\\d+)\\s*min",
+            NUM + "\\s*(km|m)\\b\\s*" + SEP + "\\s*(?:(\\d+)\\s*h\\s*)?(\\d+)\\s*min",
             Pattern.CASE_INSENSITIVE);
 
     // "23 min · 13,3 km"
     private static final Pattern MIN_SEP_DIST = Pattern.compile(
-            "(?:(\\d+)\\s*h\\s*)?(\\d+)\\s*min\\w*\\s*[·•|\\-–]\\s*" + NUM + "\\s*(km|m)\\b",
+            "(?:(\\d+)\\s*h\\s*)?(\\d+)\\s*min\\w*\\s*" + SEP + "\\s*" + NUM + "\\s*(km|m)\\b",
             Pattern.CASE_INSENSITIVE);
 
     private static final String[] PICKUP_HINTS = {
@@ -125,7 +128,8 @@ public final class OfferParser {
 
     private static final Pattern HAS_LETTER = Pattern.compile("\\p{L}{3,}");
     private static final String[] NOT_ADDRESS = {
-            "aceitar", "recusar", "accept", "decline", "confirmar", "ver mais", "toque para"
+            "aceitar", "recusar", "accept", "decline", "confirmar", "ver mais", "toque para",
+            "tenho interesse", "interesse", "deslize", "match"
     };
 
     /**
@@ -200,7 +204,7 @@ public final class OfferParser {
 
     /** Último valor de tarifa válido numa linha (ignora "+R$ x" e "R$ x/km"), ou null. */
     static Double lastFareIn(String t) {
-        if (t == null || t.indexOf('$') < 0) return null;
+        if (t == null || t.indexOf('R') < 0) return null;
         Double found = null;
         Matcher m = MONEY.matcher(t);
         while (m.find()) {

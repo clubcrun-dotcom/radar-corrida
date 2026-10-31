@@ -22,21 +22,25 @@ import br.leno.radarcorrida.core.Ranker;
 import br.leno.radarcorrida.core.Settings;
 
 /**
- * Coração do app: recebe eventos de mudança de tela, lê os textos dos apps de corrida
+ * Coração do app: recebe eventos de mudança de tela, lê a oferta dos apps de corrida
  * configurados, calcula e mostra a etiqueta. Somente leitura — não clica em nada.
  *
- * Economia de bateria/CPU (celulares fracos):
- *  - o Android só entrega eventos dos pacotes da lista (filtro aplicado no sistema);
- *  - no máximo uma leitura de tela a cada {@link #MIN_INTERVAL_MS}, mesmo com o mapa animando;
- *  - leitura limitada a {@link #MAX_NODES} elementos; etiqueta só é redesenhada se a oferta mudar;
- *  - sem internet, sem GPS, sem processo em segundo plano além do próprio serviço.
+ * Duas fontes de leitura:
+ *  1. Árvore de acessibilidade (texto dos elementos da tela) — instantânea e sem custo.
+ *  2. Leitura por imagem (OCR, Android 11+) — usada quando o app de corrida esconde o
+ *     texto da oferta da acessibilidade. Limitada a uma captura a cada {@link #OCR_INTERVAL_MS},
+ *     só enquanto o app de corrida está na tela.
  */
 public class RadarService extends AccessibilityService {
-    private static final long SETTLE_MS = 120;        // espera a tela terminar de desenhar
-    private static final long MIN_INTERVAL_MS = 350;  // teto: ~3 leituras por segundo
-    private static final long GONE_MS = 1500;         // oferta sumiu da tela → esconde
-    private static final long MAX_SHOW_MS = 25000;    // teto de exibição
-    private static final int MAX_NODES = 600;
+    private static final long SETTLE_MS = 120;
+    private static final long MIN_INTERVAL_MS = 350;
+    private static final long OCR_INTERVAL_MS = 1200;
+    private static final long GONE_MS_TREE = 1500;
+    private static final long GONE_MS_OCR = 3500;
+    private static final long MAX_SHOW_MS = 25000;
+    private static final long TARGET_ACTIVE_MS = 4000;
+    private static final int MAX_NODES = 1500;
+    private static final long WINDOWS_DUMP_EVERY_MS = 10000;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Set<String> discoveredThisSession = new HashSet<>();
@@ -45,16 +49,22 @@ public class RadarService extends AccessibilityService {
     private Set<String> targets;
     private boolean debug;
     private boolean discovery;
+    private boolean ocrEnabled;
     private int overlayYdp;
 
     private OverlayCard overlay;
     private RideLog log;
+    private ScreenOcr ocr;
 
     private String pendingPkg;
     private boolean scanScheduled;
     private long lastScanAt;
+    private long lastOcrAt;
+    private long lastTargetEventAt;
+    private long lastWindowsDumpAt;
     private String lastSig = "";
     private long lastSeenAt;
+    private boolean lastFromOcr;
 
     private final Runnable scan = this::scanNow;
     private final Runnable hide = this::hideAndReset;
@@ -67,6 +77,7 @@ public class RadarService extends AccessibilityService {
         super.onServiceConnected();
         overlay = new OverlayCard(this);
         log = new RideLog(this);
+        ocr = new ScreenOcr(this);
         reload();
         Prefs.sp(this).registerOnSharedPreferenceChangeListener(prefsListener);
     }
@@ -76,6 +87,7 @@ public class RadarService extends AccessibilityService {
         targets = Prefs.packages(this);
         debug = Prefs.debug(this);
         discovery = Prefs.discovery(this);
+        ocrEnabled = Prefs.ocr(this);
         overlayYdp = Prefs.overlayYdp(this);
         applySystemFilter();
     }
@@ -97,15 +109,19 @@ public class RadarService extends AccessibilityService {
 
         if (targets.contains(pkg)) {
             pendingPkg = pkg;
-            if (!scanScheduled) {
-                long sinceLast = SystemClock.elapsedRealtime() - lastScanAt;
-                long wait = Math.max(SETTLE_MS, MIN_INTERVAL_MS - sinceLast);
-                scanScheduled = true;
-                handler.postDelayed(scan, wait);
-            }
+            lastTargetEventAt = SystemClock.elapsedRealtime();
+            scheduleScan(0);
         } else if (discovery && !pkg.equals(getPackageName())) {
             checkDiscovery(event, pkg);
         }
+    }
+
+    private void scheduleScan(long extraDelay) {
+        if (scanScheduled) return;
+        long sinceLast = SystemClock.elapsedRealtime() - lastScanAt;
+        long wait = Math.max(SETTLE_MS, MIN_INTERVAL_MS - sinceLast) + extraDelay;
+        scanScheduled = true;
+        handler.postDelayed(scan, wait);
     }
 
     /** Modo descoberta: registra só o NOME do pacote que mostrou "R$" e "km". Nenhum conteúdo. */
@@ -123,27 +139,65 @@ public class RadarService extends AccessibilityService {
 
     private void scanNow() {
         scanScheduled = false;
-        lastScanAt = SystemClock.elapsedRealtime();
+        long now = SystemClock.elapsedRealtime();
+        lastScanAt = now;
         String pkg = pendingPkg;
         if (pkg == null) return;
 
-        List<String> texts = collectTexts(pkg);
-        if (texts.isEmpty()) return;
+        List<String> winInfo = new ArrayList<>();
+        List<String> texts = collectTexts(pkg, winInfo);
 
-        if (debug && looksRelevant(texts)) log.dumpScreen(pkg, texts);
+        if (debug && !texts.isEmpty() && looksRelevant(texts)) {
+            if (now - lastWindowsDumpAt > WINDOWS_DUMP_EVERY_MS) {
+                lastWindowsDumpAt = now;
+                List<String> withInfo = new ArrayList<>(winInfo);
+                withInfo.addAll(texts);
+                log.dumpScreen(pkg, withInfo);
+            } else {
+                log.dumpScreen(pkg, texts);
+            }
+        }
 
         List<Offer> offers = OfferParser.parseAll(texts);
-        long now = SystemClock.elapsedRealtime();
-        if (offers.isEmpty()) {
-            if (overlay.isShowing() && now - lastSeenAt > GONE_MS) hideAndReset();
-            else if (overlay.isShowing()) {
-                handler.removeCallbacks(hide);
-                handler.postDelayed(hide, GONE_MS);
-            }
+        if (!offers.isEmpty()) {
+            handleOffers(pkg, offers, false);
             return;
         }
 
+        // A árvore não mostrou oferta: tenta a leitura por imagem, se o app de corrida está ativo.
+        if (ocrEnabled && ScreenOcr.supported() && !ocr.isBusy()
+                && now - lastTargetEventAt < TARGET_ACTIVE_MS) {
+            if (now - lastOcrAt >= OCR_INTERVAL_MS) {
+                lastOcrAt = now;
+                final String ocrPkg = pkg;
+                ocr.read(overlay.screenRect(), lines -> onOcrLines(ocrPkg, lines));
+            } else {
+                // Garante nova tentativa mesmo se o app de corrida parar de gerar eventos.
+                scheduleScan(OCR_INTERVAL_MS - (now - lastOcrAt));
+            }
+        }
+        handleNoOffer(now);
+    }
+
+    private void onOcrLines(String pkg, List<String> lines) {
+        long now = SystemClock.elapsedRealtime();
+        if (debug && !lines.isEmpty() && looksRelevant(lines)) log.dumpScreen(pkg + " [imagem]", lines);
+
+        List<Offer> offers = OfferParser.parseAll(lines);
+        if (!offers.isEmpty()) {
+            handleOffers(pkg, offers, true);
+        } else {
+            handleNoOffer(now);
+        }
+        // Enquanto há oferta na tela, continua conferindo (detecta troca ou sumiço da oferta).
+        if (overlay.isShowing()) scheduleScan(OCR_INTERVAL_MS);
+    }
+
+    private void handleOffers(String pkg, List<Offer> offers, boolean fromOcr) {
+        long now = SystemClock.elapsedRealtime();
         lastSeenAt = now;
+        lastFromOcr = fromOcr;
+
         StringBuilder sigB = new StringBuilder();
         for (Offer o : offers) sigB.append(o.signature()).append('#');
         String sig = sigB.toString();
@@ -154,7 +208,7 @@ public class RadarService extends AccessibilityService {
             else overlay.showMany(ranked, overlayYdp);
             if (!sig.equals(lastSig)) {
                 for (int i = 0; i < ranked.size(); i++) {
-                    log.appendRide(pkg, ranked.get(i), i + 1, ranked.size());
+                    log.appendRide(pkg + (fromOcr ? " [imagem]" : ""), ranked.get(i), i + 1, ranked.size());
                 }
             }
             lastSig = sig;
@@ -163,10 +217,21 @@ public class RadarService extends AccessibilityService {
         handler.postDelayed(hide, MAX_SHOW_MS);
     }
 
+    private void handleNoOffer(long now) {
+        if (!overlay.isShowing()) return;
+        long gone = lastFromOcr ? GONE_MS_OCR : GONE_MS_TREE;
+        if (now - lastSeenAt > gone) {
+            hideAndReset();
+        } else {
+            handler.removeCallbacks(hide);
+            handler.postDelayed(hide, gone - (now - lastSeenAt));
+        }
+    }
+
     /** Só grava no diagnóstico telas com cara de oferta (evita escrever a cada mudança do mapa). */
     private static boolean looksRelevant(List<String> texts) {
         for (String t : texts) {
-            if (t.contains("R$") || t.contains(" km") || t.contains("km)")) return true;
+            if (t.contains("R$") || t.contains("RS") || t.contains(" km") || t.contains("km)")) return true;
         }
         return false;
     }
@@ -177,17 +242,22 @@ public class RadarService extends AccessibilityService {
         lastSig = "";
     }
 
-    /** Textos de todas as janelas do pacote alvo (o cartão da oferta costuma ser uma janela própria). */
-    private List<String> collectTexts(String pkg) {
+    /**
+     * Textos de todas as janelas do pacote alvo. Em winInfo vai um resumo de TODAS as janelas
+     * da tela (tipo, pacote, nº de textos) para o diagnóstico.
+     */
+    private List<String> collectTexts(String pkg, List<String> winInfo) {
         List<String> out = new ArrayList<>();
         int[] budget = {MAX_NODES};
         try {
             List<AccessibilityWindowInfo> windows = getWindows();
             for (AccessibilityWindowInfo w : windows) {
                 AccessibilityNodeInfo root = w.getRoot();
-                if (root == null) continue;
-                CharSequence rp = root.getPackageName();
-                if (rp != null && pkg.contentEquals(rp)) walk(root, out, 0, budget);
+                CharSequence rp = root != null ? root.getPackageName() : null;
+                int before = out.size();
+                if (root != null && rp != null && pkg.contentEquals(rp)) walk(root, out, 0, budget);
+                winInfo.add("# janela tipo=" + w.getType() + " camada=" + w.getLayer()
+                        + " pacote=" + rp + " textos=" + (out.size() - before));
             }
             if (out.isEmpty()) {
                 AccessibilityNodeInfo root = getRootInActiveWindow();
@@ -199,12 +269,12 @@ public class RadarService extends AccessibilityService {
         } catch (RuntimeException ignored) {
             // A árvore de nós pode mudar no meio da leitura; o próximo evento tenta de novo.
         }
+        if (budget[0] <= 0) winInfo.add("# limite de elementos atingido");
         return out;
     }
 
     private void walk(AccessibilityNodeInfo n, List<String> out, int depth, int[] budget) {
-        if (n == null || depth > 40 || budget[0]-- <= 0) return;
-        if (!n.isVisibleToUser()) return;
+        if (n == null || depth > 60 || budget[0]-- <= 0) return;
         CharSequence text = n.getText();
         add(out, text);
         CharSequence cd = n.getContentDescription();
@@ -230,6 +300,7 @@ public class RadarService extends AccessibilityService {
         Prefs.sp(this).unregisterOnSharedPreferenceChangeListener(prefsListener);
         handler.removeCallbacksAndMessages(null);
         if (overlay != null) overlay.hide();
+        if (ocr != null) ocr.close();
         super.onDestroy();
     }
 }
