@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Instalar Radar de Corrida</title>
+<meta name="description" content="Mostra R$/km, R$/hora e lucro de cada oferta da Uber, 99 e inDrive antes de você aceitar.">
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#14181f; --muted:#5b6472; --ok:#2e7d32; --line:#e3e6ea; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1216; --card:#181c22; --ink:#eef1f4; --muted:#9aa4b2; --line:#2a3039; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 520px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 28px; line-height:1.15; margin: 8px 0 6px; }
+  p.lead { color: var(--muted); margin: 0 0 20px; }
+  .btn { display:block; text-align:center; background:var(--ok); color:#fff; text-decoration:none;
+         font-weight:700; font-size:20px; padding:18px; border-radius:14px; }
+  .btn:active { transform: scale(.99); }
+  .meta { text-align:center; color:var(--muted); font-size:14px; margin:8px 0 24px; }
+  ol { list-style:none; padding:0; margin:0; counter-reset: s; }
+  ol li { counter-increment: s; background:var(--card); border:1px solid var(--line);
+          border-radius:12px; padding:14px 14px 14px 52px; margin-bottom:10px; position:relative; }
+  ol li::before { content: counter(s); position:absolute; left:14px; top:14px; width:26px; height:26px;
+          border-radius:50%; background:var(--ok); color:#fff; font-weight:700; font-size:14px;
+          display:flex; align-items:center; justify-content:center; }
+  ol li b { display:block; }
+  ol li span { color: var(--muted); font-size: 15px; }
+  .note { font-size:14px; color:var(--muted); margin-top:20px; }
+  .ios { display:none; background:var(--card); border:1px solid var(--line); border-radius:12px;
+         padding:14px; margin-bottom:16px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Radar de Corrida</h1>
+  <p class="lead">Mostra R$/km, R$/hora e lucro de cada oferta da Uber, 99 e inDrive antes de você
+    aceitar, e aponta a melhor quando aparecem várias ao mesmo tempo.</p>
+
+  <div class="ios" id="ios">Este app é só para Android. O iPhone não permite que um app leia a tela de outro.</div>
+
+  <a class="btn" id="dl" href="radar-corrida.apk" download>Baixar e instalar</a>
+  <div class="meta" id="meta">Android 5.1 ou mais novo · sem internet · sem anúncios</div>
+
+  <ol>
+    <li><b>Toque em "Baixar e instalar"</b>
+      <span>Quando terminar o download, toque em "Abrir".</span></li>
+    <li><b>Permita a instalação</b>
+      <span>Na primeira vez, o Android pede para permitir instalar apps deste navegador.
+        Toque em "Configurações", ative "Permitir desta fonte" e volte.</span></li>
+    <li><b>Toque em "Instalar"</b>
+      <span>Se aparecer aviso do Play Protect, toque em "Instalar mesmo assim".</span></li>
+    <li><b>Abra o app e siga os 2 passos</b>
+      <span>O próprio app leva você às telas certas para ativar. Leva uns 30 segundos.</span></li>
+  </ol>
+
+  <p class="note">Atualizar: é só baixar de novo por este mesmo link e instalar por cima.
+    Suas configurações e registros são mantidos.</p>
+</main>
+<script>
+  // Mostra versão e tamanho do APK publicado (gerado automaticamente pelo build).
+  fetch('versao.json', { cache: 'no-store' })
+    .then(r => r.ok ? r.json() : null)
+    .then(v => {
+      if (!v) return;
+      document.getElementById('meta').textContent =
+        'Versão ' + v.versao + ' · ' + v.tamanho_kb + ' KB · Android 5.1+ · sem internet';
+    })
+    .catch(() => {});
+  if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+    document.getElementById('ios').style.display = 'block';
+    document.getElementById('dl').style.display = 'none';
+  }
+</script>
+</body>
+</html>

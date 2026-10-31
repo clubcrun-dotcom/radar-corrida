@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Radar de Corrida</string>
+    <string name="service_description">Lê o valor, a distância e o tempo das ofertas da Uber, 99 e inDrive para mostrar R$/km, R$/hora e lucro antes de você aceitar. Não clica em nada, não envia dados para a internet: tudo fica no aparelho.</string>
+</resources>
