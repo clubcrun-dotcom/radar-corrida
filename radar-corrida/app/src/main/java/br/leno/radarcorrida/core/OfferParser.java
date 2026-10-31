@@ -22,12 +22,15 @@ public final class OfferParser {
 
     private static final String NUM = "(\\d{1,3}(?:\\.\\d{3})*(?:,\\d+)?|\\d+(?:[.,]\\d+)?)";
 
+    /** Número de dinheiro: "17,48", "17.48", "1.413,60", "1748" (OCR sem vírgula). */
+    private static final String MNUM = "(\\d+(?:[.,]\\d{3})*(?:[.,]\\d{1,2})?)";
+
     /** Separador entre tempo e distância; opcional porque a leitura por imagem às vezes perde o "•". */
     private static final String SEP = "[·•|\\-–.,*°]?";
 
     // R$ 23,94 | R$23,94 | +R$ 3,00 | R$ 1,52/km | "RS 23,94" (leitura por imagem)
     private static final Pattern MONEY = Pattern.compile(
-            "(\\+\\s*)?(?-i:R\\s?[$S])\\s*" + NUM + "\\s*(/\\s*(?:km|h|hr|hora)|por\\s+(?:km|hora))?",
+            "(\\+\\s*)?(?-i:R\\s?[$S])\\s*" + MNUM + "\\s*(/\\s*(?:km|h|hr|hora)|por\\s+(?:km|hora))?",
             Pattern.CASE_INSENSITIVE);
 
     // "1 h 5 min (52,4 km)" ou "5 min (800 m)"
@@ -71,6 +74,7 @@ public final class OfferParser {
     /** Devolve a oferta ou null se o conjunto de textos não parece uma oferta. */
     public static Offer parse(List<String> texts) {
         if (texts == null || texts.isEmpty()) return null;
+        texts = normalizeAll(texts);
 
         List<Leg> legs = new ArrayList<>();
         for (int i = 0; i < texts.size(); i++) {
@@ -115,7 +119,47 @@ public final class OfferParser {
 
         double pKm = pickup != null ? pickup.km : 0;
         double pMin = pickup != null ? pickup.min : 0;
-        Offer o = new Offer(fare, pKm, pMin, trip.km, trip.min,
+        double tKm = trip.km;
+
+        // Conferência com o "Est. de R$ X/km" da própria Uber (que já soma a busca).
+        // Corrige leituras por imagem que perderam a vírgula ("70 km" em vez de "7.0 km",
+        // "11 km" em vez de "1.1 km") ou que não acharam a linha da busca.
+        Double anchor = perKmAnchor(texts);
+        if (anchor != null) {
+            double implied = fare / anchor;
+            double err = Math.abs(tKm + pKm - implied) / implied;
+            if (err > 0.08) {
+                double[] tc = {tKm, tKm / 10, tKm / 100};
+                double[] pc = pickup != null ? new double[]{pKm, pKm / 10, pKm / 100} : new double[]{0};
+                double bt = tKm, bp = pKm, best = Double.MAX_VALUE;
+                for (double t : tc) {
+                    for (double pk : pc) {
+                        double e = Math.abs(t + pk - implied);
+                        if (e < best) { best = e; bt = t; bp = pk; }
+                    }
+                }
+                if (best / implied <= 0.10) {
+                    tKm = bt;
+                    pKm = bp;
+                } else {
+                    // Busca não lida: viagem = candidato mais próximo abaixo do total; busca = o resto.
+                    double t = tKm;
+                    for (double c : tc) if (c < implied && Math.abs(implied - c) < Math.abs(implied - t)) t = c;
+                    if (t < implied) {
+                        tKm = t;
+                        pKm = implied - t;
+                        double speed = trip.min > 0 ? tKm / trip.min : 0;  // km por minuto
+                        if (speed > 0) pMin = Math.round(pKm / speed);
+                    }
+                }
+            }
+        }
+
+        // Se mesmo após a correção a leitura não bate com a estimativa da Uber, é melhor
+        // não mostrar nada do que mostrar um número errado.
+        if (anchor != null && Math.abs(tKm + pKm - fare / anchor) / (fare / anchor) > 0.25) return null;
+
+        Offer o = new Offer(fare, round1(pKm), pMin, round1(tKm), trip.min,
                 destinationAfter(texts, trip.line, legs));
 
         // Sanidade: descarta leituras absurdas (ex.: ganhos do dia confundidos com tarifa).
@@ -124,6 +168,73 @@ public final class OfferParser {
         double rsKm = o.fare / km;
         if (rsKm < 0.2 || rsKm > 30) return null;
         return o;
+    }
+
+    private static double round1(double v) {
+        return Math.round(v * 10.0) / 10.0;
+    }
+
+    /** "Est. de R$2,16/km" da Uber: R$/km já com a busca somada. Null se não houver. */
+    static Double perKmAnchor(List<String> texts) {
+        for (String t : texts) {
+            if (t == null || t.indexOf('R') < 0) continue;
+            Matcher m = MONEY.matcher(t);
+            while (m.find()) {
+                if (m.group(1) != null) continue;
+                boolean perKm = m.group(3) != null && m.group(3).toLowerCase(Locale.ROOT).contains("km");
+                boolean est = isEstimateLine(t);
+                if (!perKm && !est) continue;
+                double v = money(m.group(2));
+                if (v >= 0.3 && v <= 15) return v;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isEstimateLine(String t) {
+        String low = t.toLowerCase(Locale.ROOT);
+        return low.contains("est") && low.contains("de r");
+    }
+
+    // ---- Correção de leitura por imagem (OCR) ----
+
+    private static final Pattern OCR_S5 = Pattern.compile("\\bS(?=\\s*min)");
+    private static final Pattern OCR_MIN_GLUE = Pattern.compile("(?<=min)(?=[lIL|!\\d])");
+    private static final Pattern OCR_BEFORE_KM = Pattern.compile(
+            "(?<![A-Za-zÀ-ÿ])([0-9lIL|!O][0-9lIL|!O.,]{0,5})(\\s*km\\b)");
+    private static final Pattern OCR_BEFORE_MIN = Pattern.compile(
+            "(?<![A-Za-zÀ-ÿ])([0-9lIL|!O]{1,3})(\\s*min)");
+
+    /**
+     * Corrige confusões típicas da leitura por imagem perto de "km" e "min":
+     * "ll km" → "11 km", "1.l km" → "1.1 km", "Smin" → "5min", "7.O km" → "7.0 km".
+     * Não mexe no resto da linha (endereços ficam como estão).
+     */
+    static String normalizeOcr(String t) {
+        if (t == null) return null;
+        if (t.indexOf("km") < 0 && t.indexOf("min") < 0) return t;
+        String s = OCR_S5.matcher(t).replaceAll("5");
+        s = OCR_MIN_GLUE.matcher(s).replaceAll(" ");
+        s = fixDigits(OCR_BEFORE_KM, s);
+        s = fixDigits(OCR_BEFORE_MIN, s);
+        return s;
+    }
+
+    private static String fixDigits(Pattern p, String s) {
+        Matcher m = p.matcher(s);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            String num = m.group(1).replaceAll("[lIL|!]", "1").replace('O', '0');
+            m.appendReplacement(sb, Matcher.quoteReplacement(num + m.group(2)));
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
+    static List<String> normalizeAll(List<String> texts) {
+        List<String> out = new ArrayList<>(texts.size());
+        for (String t : texts) out.add(normalizeOcr(t));
+        return out;
     }
 
     private static final Pattern HAS_LETTER = Pattern.compile("\\p{L}{3,}");
@@ -210,7 +321,8 @@ public final class OfferParser {
         while (m.find()) {
             if (m.group(1) != null) continue;  // +R$ x
             if (m.group(3) != null) continue;  // R$ x/km
-            double v = parseNumber(m.group(2));
+            if (isEstimateLine(t)) continue;   // "Est. de R$2,16/km" (mesmo se o "/km" não for lido)
+            double v = money(m.group(2));
             if (v > 0) found = v;
         }
         return found;
@@ -227,6 +339,7 @@ public final class OfferParser {
     public static List<Offer> parseAll(List<String> texts) {
         List<Offer> out = new ArrayList<>();
         if (texts == null || texts.isEmpty()) return out;
+        texts = normalizeAll(texts);
 
         List<Integer> fareLines = new ArrayList<>();
         for (int i = 0; i < texts.size(); i++) {
@@ -285,6 +398,16 @@ public final class OfferParser {
     private static double toKm(String num, String unit) {
         double v = parseNumber(num);
         return "m".equalsIgnoreCase(unit) ? v / 1000.0 : v;
+    }
+
+    /**
+     * Valor em R$. A leitura por imagem às vezes perde a vírgula ("R$ 1748" em vez de
+     * "R$ 17,48"); como os apps sempre mostram centavos, 3+ dígitos sem separador = centavos.
+     */
+    static double money(String s) {
+        String t = s.trim();
+        if (t.matches("\\d{3,}")) return Double.parseDouble(t) / 100.0;
+        return parseNumber(t);
     }
 
     /** Converte "1.234,56", "13,3", "13.3", "1.234" (milhar) em double. */

@@ -8,6 +8,9 @@ import java.util.Locale;
 public final class Evaluation {
     public enum Verdict { GOOD, OK, BAD }
 
+    /** Situação de cada indicador em relação à meta: sem meta, batida, perto, abaixo. */
+    public enum Mark { NONE, GOOD, NEAR, BAD }
+
     public final Offer offer;
     public final String profileName;
     public final double totalKm;
@@ -25,6 +28,18 @@ public final class Evaluation {
     public final String routeHit;
     /** Uma linha por meta/filtro: "✔ lucro 92% (meta 90%)". */
     public final List<String> reasons;
+
+    // Quadros da etiqueta (preenchidos pelo Calculator).
+    public Mark markKm = Mark.NONE;
+    public Mark markHour = Mark.NONE;
+    public Mark markProfit = Mark.NONE;
+    /** Velocidade média da viagem (km/h), pelo tempo que o app de corrida estima. */
+    public double tripSpeedKmh;
+    public Mark markTraffic = Mark.NONE;
+    /** "livre", "moderado", "pesado" ou vazio. */
+    public String trafficLabel = "";
+    /** true se o perfil tem bairros de trajeto cadastrados. */
+    public boolean routeConfigured;
 
     Evaluation(Offer offer, String profileName, double totalKm, double totalMin,
                double rsPerKm, double rsPerHour, double cost, double profit, double profitPct,
@@ -79,6 +94,15 @@ public final class Evaluation {
         if (routeHit != null) s += " · trajeto";
         if (!dest.isEmpty()) s += " → " + dest;
         return s;
+    }
+
+    /** Só o veredito, sem o "NO TRAJETO" (a etiqueta mostra o trajeto em selo próprio). */
+    public String verdictLabelShort() {
+        switch (verdict) {
+            case GOOD: return "ACEITAR";
+            case OK: return "AVALIAR";
+            default: return "RECUSAR";
+        }
     }
 
     public String verdictLabel() {

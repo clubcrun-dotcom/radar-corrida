@@ -3,8 +3,10 @@ package br.leno.radarcorrida;
 import android.accessibilityservice.AccessibilityService;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -18,23 +20,85 @@ import java.util.Locale;
 import br.leno.radarcorrida.core.Evaluation;
 
 /**
- * Etiqueta desenhada por cima do app de corrida.
+ * Etiqueta desenhada por cima do app de corrida, feita para leitura em 1 segundo:
+ *
+ *   ┌──────────────────────────────────────────┐
+ *   │ AVALIAR                      NO TRAJETO  │  ← faixa na cor do veredito
+ *   ├──────────┬──────────┬──────────┬─────────┤
+ *   │ R$/KM    │ R$/HORA  │ LUCRO    │ TRÂNSITO│  ← 4 quadros, cada valor na cor
+ *   │ 2,16     │ 46       │ 67%      │ 23 km/h │     da sua meta (verde/amarelo/
+ *   │          │          │ R$ 11,65 │ moderado│     vermelho; branco = sem meta)
+ *   ├──────────┴──────────┴──────────┴─────────┤
+ *   │ ✘ FORA DA ROTA · Santa Catarina, S. Gonç. │  ← caixa da rota (verde/vermelha)
+ *   │ R$ 17,48 · 8,1 km · 23 min · busca 1,1 km │
+ *   └──────────────────────────────────────────┘
  *
  * Usa TYPE_ACCESSIBILITY_OVERLAY (dispensa a permissão "sobrepor a outros apps") e é
- * NOT_TOUCHABLE: toques passam direto para o app de baixo. A etiqueta nunca cobre nem
- * aciona o botão de aceitar — a decisão é sempre do motorista.
+ * NOT_TOUCHABLE: toques passam direto para o app de baixo. Nunca aciona nada.
  */
 final class OverlayCard {
+    private static final int C_GOOD = 0xFF2E7D32;
+    private static final int C_OK = 0xFFF9A825;
+    private static final int C_BAD = 0xFFC62828;
+    private static final int V_GOOD = 0xFF66BB6A;
+    private static final int V_NEAR = 0xFFFFCA28;
+    private static final int V_BAD = 0xFFFF6E6E;
+    private static final int V_NONE = Color.WHITE;
+    private static final int BG_CARD = 0xF0141618;
+    private static final int BG_TILE = 0xFF23272B;
+    private static final int TXT_DIM = 0xFFA9B0B8;
+
     private final AccessibilityService svc;
     private final WindowManager wm;
+    private final Locale br = Locale.forLanguageTag("pt-BR");
+
     private final LinearLayout root;
-    private final TextView label;
-    private final TextView headline;
-    private final TextView details;
-    private final TextView reasons;
+    private final GradientDrawable headerBg;
+    private final TextView verdict;
+    private final TextView badge;
+    private final Tile tKm, tHour, tProfit, tTraffic;
+    private final TextView footer;
+    private final TextView routeBox;
+    private final GradientDrawable routeBg;
     private final LinearLayout list;
-    private final GradientDrawable bg;
     private boolean attached;
+
+    /** Um quadro: rótulo pequeno, valor grande colorido, complemento opcional. */
+    private final class Tile {
+        final LinearLayout box;
+        final TextView label, value, sub;
+
+        Tile(String title) {
+            box = new LinearLayout(svc);
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.setGravity(Gravity.CENTER_HORIZONTAL);
+            box.setPadding(dp(4), dp(6), dp(4), dp(6));
+            GradientDrawable g = new GradientDrawable();
+            g.setColor(BG_TILE);
+            g.setCornerRadius(dp(10));
+            box.setBackground(g);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.MATCH_PARENT, 1f);
+            lp.setMargins(dp(3), 0, dp(3), 0);
+            box.setLayoutParams(lp);
+
+            label = text(10, true, TXT_DIM);
+            label.setText(title);
+            label.setLetterSpacing(0.06f);
+            value = text(21, true, V_NONE);
+            sub = text(11, false, TXT_DIM);
+            box.addView(label);
+            box.addView(value);
+            box.addView(sub);
+        }
+
+        void set(String v, String s, Evaluation.Mark m) {
+            value.setText(v);
+            value.setTextColor(color(m));
+            sub.setText(s == null ? "" : s);
+            sub.setVisibility(s == null || s.isEmpty() ? View.GONE : View.VISIBLE);
+        }
+    }
 
     OverlayCard(AccessibilityService svc) {
         this.svc = svc;
@@ -42,87 +106,189 @@ final class OverlayCard {
 
         root = new LinearLayout(svc);
         root.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp(12);
-        root.setPadding(pad, dp(8), pad, dp(10));
-        bg = new GradientDrawable();
-        bg.setCornerRadius(dp(14));
-        root.setBackground(bg);
-        root.setAlpha(0.94f);
+        GradientDrawable cardBg = new GradientDrawable();
+        cardBg.setColor(BG_CARD);
+        cardBg.setCornerRadius(dp(16));
+        root.setBackground(cardBg);
+        root.setPadding(0, 0, 0, dp(8));
 
-        label = text(16, true);
-        headline = text(22, true);
-        details = text(13, false);
-        reasons = text(12, false);
-        root.addView(label);
-        root.addView(headline);
-        root.addView(details);
-        root.addView(reasons);
+        // Faixa do veredito
+        LinearLayout header = new LinearLayout(svc);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(dp(14), dp(7), dp(14), dp(7));
+        headerBg = new GradientDrawable();
+        float r = dp(16);
+        headerBg.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
+        header.setBackground(headerBg);
+        verdict = text(20, true, Color.WHITE);
+        verdict.setGravity(Gravity.START);
+        verdict.setLayoutParams(new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        badge = text(12, true, Color.WHITE);
+        badge.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        header.addView(verdict);
+        header.addView(badge);
+        root.addView(header);
+
+        // Quadros
+        LinearLayout tiles = new LinearLayout(svc);
+        tiles.setOrientation(LinearLayout.HORIZONTAL);
+        tiles.setPadding(dp(5), dp(8), dp(5), 0);
+        tKm = new Tile("R$/KM");
+        tHour = new Tile("R$/HORA");
+        tProfit = new Tile("LUCRO");
+        tTraffic = new Tile("TRÂNSITO");
+        tiles.addView(tKm.box);
+        tiles.addView(tHour.box);
+        tiles.addView(tProfit.box);
+        tiles.addView(tTraffic.box);
+        root.addView(tiles);
+
+        // Caixa da rota: no trajeto (verde) / fora da rota (vermelho) / destino (neutro)
+        routeBox = text(14, true, Color.WHITE);
+        routeBox.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        routeBox.setSingleLine(true);
+        routeBox.setEllipsize(TextUtils.TruncateAt.END);
+        routeBox.setPadding(dp(10), dp(7), dp(10), dp(7));
+        routeBg = new GradientDrawable();
+        routeBg.setCornerRadius(dp(10));
+        routeBox.setBackground(routeBg);
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        rlp.setMargins(dp(8), dp(8), dp(8), 0);
+        routeBox.setLayoutParams(rlp);
+        root.addView(routeBox);
+
+        // Rodapé
+        footer = text(12, false, TXT_DIM);
+        footer.setPadding(dp(12), dp(7), dp(12), 0);
+        footer.setSingleLine(true);
+        footer.setEllipsize(TextUtils.TruncateAt.END);
+        root.addView(footer);
+
+        // Lista de ofertas simultâneas
         list = new LinearLayout(svc);
         list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(0, dp(6), 0, 0);
+        list.setPadding(dp(12), dp(4), dp(12), 0);
         root.addView(list);
     }
 
-    /** Uma oferta: veredito, métricas e motivos. */
+    /** Uma oferta. */
     void show(Evaluation e, int yDp) {
-        paint(e.verdict);
+        fill(e, e.verdictLabelShort());
         list.removeAllViews();
         list.setVisibility(View.GONE);
-
-        label.setText(e.verdictLabel());
-        headline.setText(e.headline());
-        details.setText(e.details());
-        reasons.setText(e.reasonsLine());
-        reasons.setVisibility(e.reasons.isEmpty() ? View.GONE : View.VISIBLE);
         attach(yDp);
     }
 
     /**
-     * Ofertas simultâneas (lista já ordenada, melhor primeiro): destaque para a melhor e uma
-     * linha curta por oferta. O valor em R$ de cada linha é o que você procura na tela do app.
+     * Ofertas simultâneas (já ordenadas, melhor primeiro): quadros da melhor e uma linha por
+     * oferta. O valor em R$ de cada linha é o que você procura na tela do app de corrida.
      */
     void showMany(List<Evaluation> ranked, int yDp) {
         Evaluation best = ranked.get(0);
-        int fg = paint(best.verdict);
-
-        label.setText(String.format(Locale.ROOT, "%d OFERTAS · MELHOR: R$ %s",
-                ranked.size(), money(best.offer.fare)));
-        headline.setText(best.headline());
-        details.setText(best.verdictLabel() + " · " + best.details());
-        reasons.setVisibility(View.GONE);
+        fill(best, String.format(br, "MELHOR: R$ %.2f · %s", best.offer.fare, best.verdictLabelShort()));
 
         list.removeAllViews();
         int max = Math.min(ranked.size(), 4);
         for (int i = 0; i < max; i++) {
-            TextView row = text(13, i == 0);
+            Evaluation e = ranked.get(i);
+            TextView row = text(13, i == 0, i == 0 ? Color.WHITE : TXT_DIM);
             row.setGravity(Gravity.START);
-            row.setTextColor(fg);
-            row.setAlpha(i == 0 ? 1f : 0.85f);
-            row.setText((i + 1) + "º  " + ranked.get(i).compactLine());
+            row.setSingleLine(true);
+            row.setEllipsize(TextUtils.TruncateAt.END);
+            row.setPadding(0, dp(3), 0, 0);
+            row.setText((i + 1) + "º  " + e.compactLine());
             list.addView(row);
         }
         list.setVisibility(View.VISIBLE);
         attach(yDp);
     }
 
-    private int paint(Evaluation.Verdict v) {
-        int color;
-        switch (v) {
-            case GOOD: color = 0xFF2E7D32; break;
-            case OK: color = 0xFFF9A825; break;
-            default: color = 0xFFC62828; break;
+    private void fill(Evaluation e, String title) {
+        int c;
+        switch (e.verdict) {
+            case GOOD: c = C_GOOD; break;
+            case OK: c = C_OK; break;
+            default: c = C_BAD; break;
         }
-        bg.setColor(color);
-        int fg = v == Evaluation.Verdict.OK ? 0xFF1B1B1B : Color.WHITE;
-        label.setTextColor(fg);
-        headline.setTextColor(fg);
-        details.setTextColor(fg);
-        reasons.setTextColor(fg);
-        return fg;
+        headerBg.setColor(c);
+        int fg = e.verdict == Evaluation.Verdict.OK ? 0xFF1B1B1B : Color.WHITE;
+        verdict.setTextColor(fg);
+        badge.setTextColor(fg);
+        verdict.setText(title);
+        badge.setVisibility(View.GONE);
+
+        tKm.set(String.format(br, "%.2f", e.rsPerKm), null, e.markKm);
+        tHour.set(String.format(br, "%.0f", e.rsPerHour), null, e.markHour);
+        tProfit.set(String.format(br, "%.0f%%", e.profitPct),
+                String.format(br, "R$ %.2f", e.profit), e.markProfit);
+        if (e.tripSpeedKmh > 0) {
+            tTraffic.set(String.format(br, "%.0f", e.tripSpeedKmh), e.trafficLabel, e.markTraffic);
+            android.text.SpannableString sp = new android.text.SpannableString(
+                    String.format(br, "%.0f km/h", e.tripSpeedKmh));
+            int start = sp.length() - 5;
+            sp.setSpan(new android.text.style.RelativeSizeSpan(0.5f), start, sp.length(), 0);
+            tTraffic.value.setText(sp);
+        } else {
+            tTraffic.set("–", null, Evaluation.Mark.NONE);
+        }
+
+        String dest = place(e.offer.destination);
+        if (e.routeConfigured && e.routeHit != null) {
+            routeBg.setColor(0xFF1E4620);
+            routeBox.setTextColor(V_GOOD);
+            routeBox.setText("✔ NO TRAJETO · " + (dest.isEmpty() ? e.routeHit : dest));
+        } else if (e.routeConfigured && !dest.isEmpty()) {
+            routeBg.setColor(0xFF4A1F1F);
+            routeBox.setTextColor(V_BAD);
+            routeBox.setText("✘ FORA DA ROTA · " + dest);
+        } else if (e.routeConfigured) {
+            routeBg.setColor(0xFF4A3B12);
+            routeBox.setTextColor(V_NEAR);
+            routeBox.setText("? DESTINO NÃO LIDO");
+        } else {
+            routeBg.setColor(BG_TILE);
+            routeBox.setTextColor(Color.WHITE);
+            routeBox.setText("DESTINO · " + (dest.isEmpty() ? "não lido" : dest));
+        }
+
+        StringBuilder f = new StringBuilder(String.format(br, "R$ %.2f · %.1f km · %.0f min",
+                e.offer.fare, e.totalKm, e.totalMin));
+        if (e.offer.pickupKm > 0) {
+            f.append(String.format(br, " · busca %.1f km / %.0f min", e.offer.pickupKm, e.offer.pickupMin));
+        }
+        footer.setText(f.toString());
     }
 
-    private static String money(double v) {
-        return String.format(Locale.forLanguageTag("pt-BR"), "%.2f", v);
+    /**
+     * Parte útil do destino para decidir rápido: bairro e cidade.
+     * "Travessa Natividade Batista, 45, | Santa Catarina, São Gonçalo" → "Santa Catarina, São Gonçalo".
+     */
+    static String place(String dest) {
+        if (dest == null) return "";
+        String d = dest.trim();
+        int bar = d.lastIndexOf(" | ");
+        if (bar >= 0) return d.substring(bar + 3).trim();
+        String[] parts = d.split(",");
+        java.util.List<String> keep = new java.util.ArrayList<>();
+        for (String p : parts) {
+            String t = p.trim();
+            if (!t.isEmpty() && !t.matches("\\d+.*")) keep.add(t);
+        }
+        if (keep.size() >= 2) return keep.get(keep.size() - 2) + ", " + keep.get(keep.size() - 1);
+        return d;
+    }
+
+    private static int color(Evaluation.Mark m) {
+        switch (m) {
+            case GOOD: return V_GOOD;
+            case NEAR: return V_NEAR;
+            case BAD: return V_BAD;
+            default: return V_NONE;
+        }
     }
 
     private void attach(int yDp) {
@@ -152,13 +318,12 @@ final class OverlayCard {
     boolean isShowing() { return attached; }
 
     /** Área da etiqueta na tela (para a leitura por imagem não ler a própria etiqueta). */
-    android.graphics.Rect screenRect() {
+    Rect screenRect() {
         if (!attached || root.getWidth() == 0) return null;
         int[] xy = new int[2];
         root.getLocationOnScreen(xy);
         int m = dp(8);
-        return new android.graphics.Rect(xy[0] - m, xy[1] - m,
-                xy[0] + root.getWidth() + m, xy[1] + root.getHeight() + m);
+        return new Rect(xy[0] - m, xy[1] - m, xy[0] + root.getWidth() + m, xy[1] + root.getHeight() + m);
     }
 
     private WindowManager.LayoutParams params(int yDp) {
@@ -172,15 +337,17 @@ final class OverlayCard {
                 PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
         lp.y = dp(yDp);
-        lp.horizontalMargin = 0.04f;
+        lp.horizontalMargin = 0.03f;
         return lp;
     }
 
-    private TextView text(int sp, boolean bold) {
+    private TextView text(int sp, boolean bold, int color) {
         TextView t = new TextView(svc);
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
         if (bold) t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setTextColor(color);
         t.setGravity(Gravity.CENTER_HORIZONTAL);
+        t.setIncludeFontPadding(false);
         t.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         return t;
@@ -190,7 +357,4 @@ final class OverlayCard {
         return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v,
                 svc.getResources().getDisplayMetrics()));
     }
-
-    @SuppressWarnings("unused")
-    View view() { return root; }
 }

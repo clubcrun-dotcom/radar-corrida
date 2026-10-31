@@ -287,4 +287,93 @@ public class CoreTest {
                 "Página inicial", "R$ 0,00", "HOJE", "Você está online",
                 "+R$ 3,25", "+R$ 3", "1-4 min", "1-3 min", "1-5 min")).size());
     }
+
+    // ---- Leituras por imagem REAIS (telas.txt de 31/10/2026, print da oferta na Galeria) ----
+
+    private static Offer only(java.util.List<String> lines) {
+        java.util.List<Offer> l = OfferParser.parseAll(lines);
+        assertEquals(1, l.size());
+        return l.get(0);
+    }
+
+    @Test
+    public void realOcr_llKm_andThumbnailFare() {
+        Offer o = only(Arrays.asList("15:50 O", "ll 30", "es", "Praça do Rocha", "PraçaColut", "2 UberX", "X",
+                "R$ 17,48", "Est. de R$2,16/km", "5 min ll km",
+                "R. Expedicionário Ernezito José das", "Chagas, Colubandê, São Gonçalo", "4,92 (1429)",
+                "18 minutos 7.0 km", "Travessa Natividade Batista, 45,", "Santa Catarina, Säão Gonçalo",
+                "Tenho interesse", "da Colina de", "Niterói", "R$ 1748"));
+        assertEquals(17.48, o.fare, EPS);
+        assertEquals(1.1, o.pickupKm, EPS);
+        assertEquals(5, o.pickupMin, EPS);
+        assertEquals(7.0, o.tripKm, EPS);
+    }
+
+    @Test
+    public void realOcr_1lKm_70km_fareWithoutComma() {
+        Offer o = only(Arrays.asList("15:51", "ll 30", "Praça Colu", "UberX", "X",
+                "R$ 1748", "Est. de R$2,16/km", "5 min 1l km",
+                "R. Expedicionário Ernezito José das", "Chagas, Colubandê, São Gonçalo", "* 4,92 (1429)",
+                "18 minutos• 70 km", "Travessa Natividade Batista, 45,", "Santa Catarina, São Gonçalo",
+                "Tenho interesse", "da Colina de", "T", "Niterói", "<"));
+        assertEquals(17.48, o.fare, EPS);
+        assertEquals(1.1, o.pickupKm, EPS);
+        assertEquals(7.0, o.tripKm, EPS);
+        assertEquals(18, o.tripMin, EPS);
+    }
+
+    @Test
+    public void realOcr_l1Km_and_1lKm() {
+        for (String pick : new String[]{"5 min l.1 km", "5 min 1.l km", "5 min ll km"}) {
+            Offer o = only(Arrays.asList("2 UberX", "R$ 17,48", "Est. de R$2,16/km", pick,
+                    "Chagas, Colubandê, São Gonçalo", "18 minutos 7.0 km", "Santa Catarina, São Gonçalo"));
+            assertEquals(pick, 1.1, o.pickupKm, EPS);
+            assertEquals(pick, 7.0, o.tripKm, EPS);
+        }
+    }
+
+    @Test
+    public void pickupLineMissing_isRebuiltFromUberEstimate() {
+        Offer o = only(Arrays.asList("UberX", "R$ 17,48", "Est. de R$2,16/km",
+                "Chagas, Colubandê, São Gonçalo", "18 minutos 7.0 km", "Santa Catarina, São Gonçalo"));
+        assertEquals(7.0, o.tripKm, EPS);
+        assertEquals(1.1, o.pickupKm, 0.06);
+        assertEquals(3, o.pickupMin, 0.6);   // estimado pela velocidade da viagem
+    }
+
+    @Test
+    public void realOcr_finalVerdictIsAvaliar() {
+        Offer o = only(Arrays.asList("R$ 1748", "Est. de R$2,16/km", "5 min 1l km",
+                "Chagas, Colubandê, São Gonçalo", "18 minutos• 70 km", "Santa Catarina, São Gonçalo"));
+        Settings s = new Settings();
+        s.fuelPrice = 6.50; s.kmPerLiter = 13; s.extraCostPerKm = 0.22;
+        s.profile = Profile.extraIncomeRoute();
+        s.profile.minProfitPct = 70;
+        Evaluation e = Calculator.evaluate(o, s);
+        assertEquals(2.16, e.rsPerKm, EPS);
+        assertEquals(Evaluation.Verdict.OK, e.verdict);
+    }
+
+    @Test
+    public void ocrNormalization() {
+        assertEquals("5 min 11 km", OfferParser.normalizeOcr("5 min ll km"));
+        assertEquals("5min 11 km", OfferParser.normalizeOcr("Sminll km"));
+        assertEquals("5 min 1.1 km", OfferParser.normalizeOcr("5 min 1.l km"));
+        assertEquals("Rua Total, 45", OfferParser.normalizeOcr("Rua Total, 45"));
+    }
+
+    @Test
+    public void tilesAndTraffic() {
+        Settings s = new Settings();
+        s.fuelPrice = 6.50; s.kmPerLiter = 13; s.extraCostPerKm = 0.22;
+        s.profile = Profile.extraIncomeRoute();
+        s.profile.minProfitPct = 70;
+        Evaluation e = Calculator.evaluate(new Offer(17.48, 1.1, 5, 7.0, 18), s);
+        assertEquals(Evaluation.Mark.NEAR, e.markProfit);   // 67% de 70%
+        assertEquals(Evaluation.Mark.NONE, e.markKm);       // sem meta de R$/km
+        assertEquals(23.3, e.tripSpeedKmh, 0.1);
+        assertEquals("moderado", e.trafficLabel);
+        Evaluation jam = Calculator.evaluate(new Offer(20, 1, 5, 5.0, 25), s);   // 12 km/h
+        assertEquals("pesado", jam.trafficLabel);
+    }
 }

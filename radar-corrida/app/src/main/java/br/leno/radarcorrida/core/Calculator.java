@@ -18,6 +18,16 @@ public final class Calculator {
 
     private static final Locale BR = Locale.forLanguageTag("pt-BR");
     static final double NEAR = 0.85;
+    /** Abaixo disso a rota está travada (média urbana com semáforos ≈ 20–30 km/h). */
+    static final double TRAFFIC_HEAVY_KMH = 18;
+    static final double TRAFFIC_FREE_KMH = 30;
+
+    private static Evaluation.Mark markOf(double ratio) {
+        if (ratio < 0) return Evaluation.Mark.NONE;
+        if (ratio >= 1) return Evaluation.Mark.GOOD;
+        if (ratio >= NEAR) return Evaluation.Mark.NEAR;
+        return Evaluation.Mark.BAD;
+    }
 
     public static Evaluation evaluate(Offer o, Settings s) {
         Profile p = s.profile != null ? s.profile : new Profile();
@@ -122,8 +132,29 @@ public final class Calculator {
         if (blocked) score = Math.min(score, 1.0);
         score = Math.round(score * 10.0) / 10.0;
 
-        return new Evaluation(o, p.name, km, min, rsKm, rsH, cost, profit, profitPct, profitH,
+        Evaluation ev = new Evaluation(o, p.name, km, min, rsKm, rsH, cost, profit, profitPct, profitH,
                 score, v, routeHit, reasons);
+        ev.markKm = markOf(p.minRsPerKm > 0 ? rsKm / p.minRsPerKm : -1);
+        ev.markHour = markOf(p.minRsPerHour > 0 ? rsH / p.minRsPerHour : -1);
+        ev.markProfit = markOf(p.minProfitPct > 0 ? profitPct / p.minProfitPct : -1);
+        ev.routeConfigured = !p.routeKeywords.isEmpty();
+
+        // Trânsito: o tempo estimado pelo app de corrida já considera o trânsito atual,
+        // então a velocidade média da viagem mostra se a rota está travada.
+        if (o.tripMin > 0 && o.tripKm > 0) {
+            ev.tripSpeedKmh = o.tripKm / (o.tripMin / 60.0);
+            if (ev.tripSpeedKmh < TRAFFIC_HEAVY_KMH) {
+                ev.markTraffic = Evaluation.Mark.BAD;
+                ev.trafficLabel = "pesado";
+            } else if (ev.tripSpeedKmh < TRAFFIC_FREE_KMH) {
+                ev.markTraffic = Evaluation.Mark.NEAR;
+                ev.trafficLabel = "moderado";
+            } else {
+                ev.markTraffic = Evaluation.Mark.GOOD;
+                ev.trafficLabel = "livre";
+            }
+        }
+        return ev;
     }
 
     private static String mark(double ratio) {
