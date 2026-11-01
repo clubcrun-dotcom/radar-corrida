@@ -72,11 +72,53 @@ public final class HistoryParser {
     }
 
     /**
-     * Corridas visíveis. Entradas no topo da lista sem cabeçalho de dia visível acima são
-     * ignoradas (a data não é conhecida); aparecem quando o motorista rola a lista.
+     * Corridas visíveis. Entradas no topo sem cabeçalho de dia visível acima são ignoradas
+     * (a data não é conhecida); use a versão com mapa para herdar a data entre rolagens.
      * year/month = data de hoje, para deduzir o ano (dezembro visto em janeiro = ano anterior).
      */
     public static List<Trip> parse(List<String> raw, int year, int month) {
+        return resolve(parseRaw(raw, year, month), new java.util.HashMap<String, String>());
+    }
+
+    /**
+     * Como parse, mas lembra as datas entre leituras: ao rolar a lista, o cabeçalho do dia sai
+     * por cima e as corridas logo abaixo dele ficam sem data na tela. Elas herdam a data de
+     * qualquer corrida do mesmo bloco já vista com data (o mapa guarda assinatura → data).
+     */
+    public static List<Trip> parse(List<String> raw, int year, int month, java.util.Map<String, String> known) {
+        return resolve(parseRaw(raw, year, month), known);
+    }
+
+    /** Assinatura da corrida sem a data (para reconhecer a mesma entrada em outra rolagem). */
+    static String sig(Trip t) {
+        return t.time + "|" + String.format(Locale.ROOT, "%.2f|%.1f|%.2f", t.fare, t.minutes, t.km) + "|" + t.kind;
+    }
+
+    /**
+     * Entradas sem data só existem no topo da tela, antes do primeiro cabeçalho visível, e são
+     * todas do mesmo dia. Se alguma delas já foi vista com data, o bloco inteiro recebe essa data.
+     */
+    static List<Trip> resolve(List<Trip> all, java.util.Map<String, String> known) {
+        String prefixDate = null;
+        for (Trip t : all) {
+            if (!t.date.isEmpty()) break;
+            String d = known.get(sig(t));
+            if (d != null) { prefixDate = d; break; }
+        }
+        List<Trip> out = new ArrayList<>();
+        for (Trip t : all) {
+            if (t.date.isEmpty()) {
+                if (prefixDate == null) continue;
+                t.date = prefixDate;
+            }
+            if (known.size() > 2000) known.clear();
+            known.put(sig(t), t.date);
+            out.add(t);
+        }
+        return out;
+    }
+
+    static List<Trip> parseRaw(List<String> raw, int year, int month) {
         List<Trip> out = new ArrayList<>();
         String date = null;
         Trip cur = null;
@@ -99,11 +141,9 @@ public final class HistoryParser {
             if (f.find()) {
                 if (cur != null) finish(cur, out);
                 cur = null;
-                if (date != null) {
-                    cur = new Trip();
-                    cur.date = date;
-                    cur.fare = money(f.group(1));
-                }
+                cur = new Trip();
+                cur.date = date != null ? date : "";   // "" = sem cabeçalho visível acima (resolve decide)
+                cur.fare = money(f.group(1));
                 continue;
             }
             if (cur == null) continue;

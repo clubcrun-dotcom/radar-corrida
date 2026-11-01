@@ -656,4 +656,60 @@ public class CoreTest {
         assertEquals(false, off.detourCostOnly);
         assertEquals(full.cost, off.cost, EPS);
     }
+
+    // ---- Rolagem real do histórico (telas.txt 31/10 21:20–21:21): o cabeçalho do dia some por cima ----
+    private static java.util.List<java.util.List<String>> realScroll() {
+        String h = "Histórico de ganhos";
+        return Arrays.asList(
+            Arrays.asList("Voltar", h, "Compacto", "ter., 20 de out.",
+                "R$ 40,94", "\u2066Uber X\u2069 · \u206642 min 10 segundos\u2069 · \u206622.95 km\u2069", "19:41",
+                "R$ 2,75 Preço dinâmico", "R$ 6,60 Pedágio", "Rua Senador Dantas, Centro - Rio de Janeiro - RJ, 20031-914, Brasil",
+                "R$ 18,82", "\u2066Uber X\u2069 · \u206614 min 8 segundos\u2069 · \u20663.31 km\u2069", "19:03", "R$ 11,00 Preço dinâmico",
+                "R$ 18,65", "\u2066Prioridade\u2069 · \u206613 min 9 segundos\u2069 · \u20662.80 km\u2069", "18:53", "R$ 9,75 Preço dinâmico",
+                "Página inicial", "Caixa de entrada, 10 novas notificações", "1-18 min"),
+            Arrays.asList("Voltar", h, "Compacto",
+                "R$ 18,65", "\u2066Prioridade\u2069 · \u206613 min 9 segundos\u2069 · \u20662.80 km\u2069", "18:53", "R$ 9,75 Preço dinâmico",
+                "R$ 10,64", "\u2066Prioridade\u2069 · \u20669 min 9 segundos\u2069 · \u20662.02 km\u2069", "18:24", "R$ 1,75 Preço dinâmico",
+                "R$ 180,00", "Promoção", "6:59",
+                "R$ 56,19", "Aumentou", "\u2066Uber X\u2069 · \u20661 h 17 min\u2069 · \u206636.28 km\u2069", "5:35",
+                "Rua Quintiliano da Fonseca, Colubandê - São Gonçalo - RJ, 24451-255, Brasil", "Página inicial", "1-6 min"),
+            Arrays.asList("Voltar", h, "Compacto",
+                "R$ 10,64", "\u2066Prioridade\u2069 · \u20669 min 9 segundos\u2069 · \u20662.02 km\u2069", "18:24",
+                "R$ 180,00", "Promoção", "6:59",
+                "R$ 56,19", "Aumentou", "\u2066Uber X\u2069 · \u20661 h 17 min\u2069 · \u206636.28 km\u2069", "5:35",
+                "sex., 16 de out.", "R$ 0,00", "Uber X · Você cancelou", "16:45", "Página inicial"),
+            Arrays.asList("Voltar", h, "Compacto",
+                "R$ 0,00", "Uber X · Você cancelou", "16:45",
+                "R$ 22,10", "\u2066Prioridade\u2069 · \u206619 min 47 segundos\u2069 · \u20667.71 km\u2069", "6:05", "R$ 1,50 Preço dinâmico",
+                "R$ 25,06", "\u2066Uber X\u2069 · \u206617 min 14 segundos\u2069 · \u206614.96 km\u2069", "5:42",
+                "Página inicial", "Caixa de entrada, 10 novas notificações", "1-5 min"));
+    }
+
+    @Test
+    public void history_scroll_inheritsDateWhenHeaderScrollsAway() {
+        java.util.Map<String, String> known = new java.util.HashMap<>();
+        java.util.Map<String, HistoryParser.Trip> got = new java.util.LinkedHashMap<>();
+        for (java.util.List<String> screen : realScroll()) {
+            assertEquals(0, OfferParser.parseAll(screen).size());          // histórico nunca vira oferta
+            for (HistoryParser.Trip t : HistoryParser.parse(screen, 2026, 10, known)) got.put(t.key(), t);
+        }
+        assertEquals(9, got.size());
+        assertEquals(true, got.containsKey("2026-10-20 18:24 10.64"));
+        assertEquals(true, got.containsKey("2026-10-20 6:59 180.00"));
+        assertEquals(77.0, got.get("2026-10-20 5:35 56.19").minutes, EPS);
+        assertEquals(true, got.get("2026-10-16 16:45 0.00").cancelled);
+        assertEquals(true, got.containsKey("2026-10-16 6:05 22.10"));
+        assertEquals(true, got.containsKey("2026-10-16 5:42 25.06"));
+        // Sem memória entre telas, as que perderam o cabeçalho ficariam de fora.
+        int alone = 0;
+        java.util.Set<String> k = new java.util.HashSet<>();
+        for (java.util.List<String> screen : realScroll())
+            for (HistoryParser.Trip t : HistoryParser.parse(screen, 2026, 10)) if (k.add(t.key())) alone++;
+        assertEquals(4, alone);
+
+        RealStats r = RealStats.of(new java.util.ArrayList<>(got.values()), lenoCar());
+        assertEquals(7, r.trips);
+        assertEquals(180.0, r.promos, EPS);
+        System.out.println("ROLAGEM REAL:\n" + r.text(lenoCar()));
+    }
 }

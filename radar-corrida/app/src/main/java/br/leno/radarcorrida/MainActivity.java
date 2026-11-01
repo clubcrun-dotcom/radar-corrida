@@ -124,6 +124,14 @@ public class MainActivity extends Activity {
         setContentView(scroll);
 
         title("Radar de Corrida", 24);
+        TextView ver = new TextView(this);
+        String vn = "?";
+        try { vn = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
+        catch (Exception ignored) { /* sem versão */ }
+        ver.setText("Versão " + vn);
+        ver.setTextSize(13);
+        ver.setTextColor(0xFF757575);
+        col.addView(ver);
         status = new TextView(this);
         status.setTextSize(15);
         col.addView(status);

@@ -164,14 +164,20 @@ public class RadarService extends AccessibilityService {
             }
         }
 
+        // Tela que não é de oferta (histórico de ganhos): nada a avaliar.
+        if (isNonOfferScreen(texts)) {
+            handleNoOffer(now);
+            return;
+        }
+
         List<Offer> offers = OfferParser.parseAll(texts);
         if (!offers.isEmpty()) {
             handleOffers(pkg, offers, false);
             return;
         }
 
-        // Motorista offline ou em tela que não é de oferta (histórico de ganhos): nada a ler.
-        if (isOffline(texts) || isNonOfferScreen(texts)) {
+        // Motorista offline: nada a ler.
+        if (isOffline(texts)) {
             handleNoOffer(now);
             return;
         }
@@ -242,12 +248,15 @@ public class RadarService extends AccessibilityService {
         }
     }
 
+    /** Datas das corridas do histórico já vistas nesta sessão (assinatura → data). */
+    private final java.util.Map<String, String> histDates = new java.util.HashMap<>();
+
     /** Tela "Histórico de ganhos" aberta: registra as corridas visíveis (sem repetir). */
     private void importHistory(List<String> texts) {
         if (!br.leno.radarcorrida.core.HistoryParser.isHistoryScreen(texts)) return;
         java.util.Calendar c = java.util.Calendar.getInstance();
         List<br.leno.radarcorrida.core.HistoryParser.Trip> trips = br.leno.radarcorrida.core.HistoryParser
-                .parse(texts, c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH) + 1);
+                .parse(texts, c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH) + 1, histDates);
         if (trips.isEmpty()) return;
         int added = log.appendHistory(trips);
         SharedPreferences sp = Prefs.sp(this);
