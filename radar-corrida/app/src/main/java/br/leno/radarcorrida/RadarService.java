@@ -36,7 +36,10 @@ public class RadarService extends AccessibilityService {
     private static final long MIN_INTERVAL_MS = 350;
     private static final long OCR_INTERVAL_MS = 1200;
     private static final long GONE_MS_TREE = 1500;
-    private static final long GONE_MS_OCR = 3500;
+    /** Reserva: se a tela inicial não for reconhecida, a etiqueta some depois disto sem oferta. */
+    private static final long GONE_MS_OCR = 2000;
+    /** Na tela inicial (sem cartão de oferta), a leitura por imagem fica mais espaçada. */
+    private static final long OCR_INTERVAL_HOME_MS = 2500;
     private static final long MAX_SHOW_MS = 25000;
     private static final long TARGET_ACTIVE_MS = 4000;
     private static final int MAX_NODES = 1500;
@@ -67,6 +70,10 @@ public class RadarService extends AccessibilityService {
     private String lastSig = "";
     private long lastSeenAt;
     private boolean lastFromOcr;
+    /** A barra de baixo da Uber ("Você está online"...) está visível: não há cartão de oferta. */
+    private boolean homeVisible;
+    /** Momento em que a tela inicial voltou (cartão de oferta sumiu). */
+    private long homeSeenAt;
 
     private final Runnable scan = this::scanNow;
     private final Runnable hide = this::hideAndReset;
@@ -164,6 +171,16 @@ public class RadarService extends AccessibilityService {
             }
         }
 
+        // Cartão de oferta aberto, a Uber esconde a barra de baixo ("Você está online",
+        // "Preço dinâmico mínimo"...). Quando ela volta, a oferta saiu: some com a etiqueta já.
+        if (!texts.isEmpty()) {
+            boolean home = isHomeScreen(texts);
+            if (home && !homeVisible) homeSeenAt = now;
+            if (home && overlay.isShowing() && lastFromOcr) hideAndReset();
+            if (!home && homeVisible) lastOcrAt = 0;   // a tela mudou: pode ser oferta nova, lê já
+            homeVisible = home;
+        }
+
         // Tela que não é de oferta (histórico de ganhos): nada a avaliar.
         if (isNonOfferScreen(texts)) {
             handleNoOffer(now);
@@ -185,21 +202,29 @@ public class RadarService extends AccessibilityService {
         // A árvore não mostrou oferta: tenta a leitura por imagem, se o app de corrida está ativo.
         if (ocrEnabled && ScreenOcr.supported() && !ocr.isBusy()
                 && now - lastTargetEventAt < TARGET_ACTIVE_MS) {
-            if (now - lastOcrAt >= OCR_INTERVAL_MS) {
+            long interval = homeVisible ? OCR_INTERVAL_HOME_MS : OCR_INTERVAL_MS;
+            if (now - lastOcrAt >= interval) {
                 lastOcrAt = now;
                 final String ocrPkg = pkg;
-                ocr.read(overlay.screenRect(), lines -> onOcrLines(ocrPkg, lines));
+                final long startedAt = now;
+                ocr.read(overlay.screenRect(), lines -> onOcrLines(ocrPkg, lines, startedAt));
             } else {
                 // Garante nova tentativa mesmo se o app de corrida parar de gerar eventos.
-                scheduleScan(OCR_INTERVAL_MS - (now - lastOcrAt));
+                scheduleScan(interval - (now - lastOcrAt));
             }
         }
         handleNoOffer(now);
     }
 
-    private void onOcrLines(String pkg, List<String> lines) {
+    private void onOcrLines(String pkg, List<String> lines, long startedAt) {
         long now = SystemClock.elapsedRealtime();
         if (debug && !lines.isEmpty() && looksRelevant(lines)) log.dumpScreen(pkg + " [imagem]", lines);
+
+        // Imagem capturada antes de o cartão sumir: não ressuscita a oferta antiga.
+        if (startedAt < homeSeenAt && homeVisible) {
+            handleNoOffer(now);
+            return;
+        }
 
         // Leitura por imagem só vale como oferta se a tela tiver cara de oferta (botão/estimativa).
         List<Offer> offers = OfferParser.hasOfferMarker(lines)
@@ -330,6 +355,19 @@ public class RadarService extends AccessibilityService {
     private static boolean isNonOfferScreen(List<String> texts) {
         for (String t : texts) {
             if (t.equalsIgnoreCase("Histórico de ganhos") || t.equalsIgnoreCase("Seletor de data")) return true;
+        }
+        return false;
+    }
+
+    private static final String[] HOME_BAR = {
+            "Você está online", "Preço dinâmico mínimo", "Procurando viagens", "Você está offline", "Ficar online"
+    };
+
+    /** Barra de baixo da tela inicial da Uber: some enquanto o cartão de oferta está aberto. */
+    static boolean isHomeScreen(List<String> texts) {
+        for (String t : texts) {
+            if (t == null) continue;
+            for (String h : HOME_BAR) if (t.equalsIgnoreCase(h)) return true;
         }
         return false;
     }
