@@ -25,7 +25,7 @@ import br.leno.radarcorrida.core.Evaluation;
  *   ┌──────────────────────────────────────────┐
  *   │ AVALIAR                      NO TRAJETO  │  ← faixa na cor do veredito
  *   ├──────────┬──────────┬──────────┬─────────┤
- *   │ R$/KM    │ LUCRO/H  │ LUCRO    │ TRÂNSITO│  ← 4 quadros, cada valor na cor
+ *   │ R$/KM    │GANHO/HORA│ LUCRO    │ TRÂNSITO│  ← 4 quadros, cada valor na cor
  *   │ 2,16     │ 46       │ 67%      │ 23 km/h │     da sua meta (verde/amarelo/
  *   │          │          │ R$ 11,65 │ moderado│     vermelho; branco = sem meta)
  *   ├──────────┴──────────┴──────────┴─────────┤
@@ -146,7 +146,7 @@ final class OverlayCard {
         tiles.setOrientation(LinearLayout.HORIZONTAL);
         tiles.setPadding(dp(5), dp(8), dp(5), 0);
         tKm = new Tile("R$/KM");
-        tHour = new Tile("LUCRO/H");
+        tHour = new Tile("GANHO/HORA");
         tProfit = new Tile("LUCRO");
         tTraffic = new Tile("TRÂNSITO");
         tiles.addView(tKm.box);
@@ -232,14 +232,15 @@ final class OverlayCard {
         badge.setVisibility(dayInfo.isEmpty() ? View.GONE : View.VISIBLE);
 
         tKm.set(String.format(br, "%.2f", e.rsPerKm), null, e.markKm);
+        // Ganho por hora no ritmo desta corrida (busca + viagem): "R$ 68/h", e o outro valor embaixo.
         if (netMode) {
-            tHour.label.setText("LUCRO/H");
-            tHour.set(String.format(br, "%.0f", e.profitPerHour),
-                    String.format(br, "bruto %.0f", e.rsPerHour), e.markProfitHour);
+            tHour.label.setText("LUCRO/HORA");
+            tHour.set("", String.format(br, "bruto R$%.0f/h", e.rsPerHour), e.markProfitHour);
+            tHour.value.setText(perHour(e.profitPerHour));
         } else {
-            tHour.label.setText("R$/HORA");
-            tHour.set(String.format(br, "%.0f", e.rsPerHour),
-                    String.format(br, "lucro %.0f", e.profitPerHour), e.markHour);
+            tHour.label.setText("GANHO/HORA");
+            tHour.set("", String.format(br, "lucro R$%.0f/h", e.profitPerHour), e.markHour);
+            tHour.value.setText(perHour(e.rsPerHour));
         }
         tProfit.set(String.format(br, "%.0f%%", e.profitPct),
                 String.format(br, "R$ %.2f", e.profit), e.markProfit);
@@ -288,11 +289,28 @@ final class OverlayCard {
      * Parte útil do destino para decidir rápido: bairro e cidade.
      * "Travessa Natividade Batista, 45, | Santa Catarina, São Gonçalo" → "Santa Catarina, São Gonçalo".
      */
+    /** "R$ 68/h" com "R$" e "/h" menores, para o número continuar legível de relance. */
+    private CharSequence perHour(double v) {
+        String n = String.format(br, "%.0f", v);
+        android.text.SpannableString sp = new android.text.SpannableString("R$ " + n + "/h");
+        sp.setSpan(new android.text.style.RelativeSizeSpan(0.5f), 0, 3, 0);
+        sp.setSpan(new android.text.style.RelativeSizeSpan(0.5f), 3 + n.length(), sp.length(), 0);
+        return sp;
+    }
+
     static String place(String dest) {
         if (dest == null) return "";
-        String d = dest.trim();
-        int bar = d.lastIndexOf(" | ");
-        if (bar >= 0) return d.substring(bar + 3).trim();
+        // O destino vem em linhas ("Rua X, 211, Santa | Izabel, São Gonçalo"). Linhas que são
+        // rótulo do mapa lidos por imagem ("AIE", "MARAVISTA", "L08") ficam de fora.
+        StringBuilder sb = new StringBuilder();
+        for (String seg : dest.split(" \\| ")) {
+            String t = seg.trim();
+            if (t.length() < 4 || !t.matches(".*[a-zà-ÿ].*")) continue;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(t);
+        }
+        String d = sb.toString().trim();
+        if (d.isEmpty()) return "";
         String[] parts = d.split(",");
         java.util.List<String> keep = new java.util.ArrayList<>();
         for (String p : parts) {
