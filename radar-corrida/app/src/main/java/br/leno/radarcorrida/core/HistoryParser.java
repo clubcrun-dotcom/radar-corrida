@@ -35,6 +35,20 @@ public final class HistoryParser {
         public double tip;            // R$ de valor extra do passageiro
         public boolean promo;
         public boolean cancelled;
+        /** Leitura: sem cabeçalho de dia visível acima (topo da tela). */
+        transient boolean prefix;
+        /** Leitura: hora fora de ordem no bloco → faltou um cabeçalho de dia na tela; data incerta. */
+        transient boolean suspect;
+        transient int block;
+
+        int minuteOfDay() {
+            int i = time.indexOf(':');
+            try {
+                return i > 0 ? Integer.parseInt(time.substring(0, i)) * 60 + Integer.parseInt(time.substring(i + 1)) : -1;
+            } catch (NumberFormatException e) {
+                return -1;
+            }
+        }
 
         /** Ganho real: valor menos o pedágio (que só devolve o que o motorista pagou). */
         public double earnings() { return fare - toll; }
@@ -90,7 +104,7 @@ public final class HistoryParser {
     }
 
     /** Assinatura da corrida sem a data (para reconhecer a mesma entrada em outra rolagem). */
-    static String sig(Trip t) {
+    public static String sig(Trip t) {
         return t.time + "|" + String.format(Locale.ROOT, "%.2f|%.1f|%.2f", t.fare, t.minutes, t.km) + "|" + t.kind;
     }
 
@@ -101,26 +115,58 @@ public final class HistoryParser {
     static List<Trip> resolve(List<Trip> all, java.util.Map<String, String> known) {
         String prefixDate = null;
         for (Trip t : all) {
-            if (!t.date.isEmpty()) break;
+            if (!t.prefix) break;
+            if (t.suspect) continue;
             String d = known.get(sig(t));
             if (d != null) { prefixDate = d; break; }
         }
         List<Trip> out = new ArrayList<>();
         for (Trip t : all) {
-            if (t.date.isEmpty()) {
+            if (t.suspect) {
+                // Data incerta: só entra se a mesma corrida já foi vista com data confiável.
+                String d = known.get(sig(t));
+                if (d == null) continue;
+                t.date = d;
+            } else if (t.prefix) {
                 if (prefixDate == null) continue;
                 t.date = prefixDate;
             }
             if (known.size() > 2000) known.clear();
-            known.put(sig(t), t.date);
+            if (!known.containsKey(sig(t))) known.put(sig(t), t.date);
             out.add(t);
         }
+        return out;
+    }
+
+    /**
+     * Dentro de um dia, a Uber lista da corrida mais recente para a mais antiga. Se a hora sobe
+     * dentro do mesmo bloco, um cabeçalho de dia não veio no texto da tela: dali até o próximo
+     * cabeçalho, a data é incerta.
+     */
+    private static void markOutOfOrder(List<Trip> out) {
+        int block = Integer.MIN_VALUE, prev = Integer.MAX_VALUE;
+        boolean broken = false;
+        for (Trip t : out) {
+            if (t.block != block) { block = t.block; prev = Integer.MAX_VALUE; broken = false; }
+            int m = t.minuteOfDay();
+            if (m > prev) broken = true;
+            if (m >= 0) prev = m;
+            if (broken) t.suspect = true;
+        }
+    }
+
+    /** Remove repetições da mesma corrida (mesma hora, valor, duração e km), mantendo a primeira. */
+    public static List<Trip> dedupe(List<Trip> all) {
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        List<Trip> out = new ArrayList<>();
+        for (Trip t : all) if (seen.add(sig(t))) out.add(t);
         return out;
     }
 
     static List<Trip> parseRaw(List<String> raw, int year, int month) {
         List<Trip> out = new ArrayList<>();
         String date = null;
+        int block = -1;
         Trip cur = null;
         for (int i = 0; i < raw.size(); i++) {
             String t = clean(raw.get(i));
@@ -130,6 +176,7 @@ public final class HistoryParser {
             if (d.find()) {
                 if (cur != null) { finish(cur, out); cur = null; }
                 int m = monthIndex(d.group(2));
+                block++;
                 if (m > 0) {
                     int y = m > month ? year - 1 : year;
                     date = String.format(Locale.ROOT, "%04d-%02d-%02d", y, m, Integer.parseInt(d.group(1)));
@@ -143,6 +190,8 @@ public final class HistoryParser {
                 cur = null;
                 cur = new Trip();
                 cur.date = date != null ? date : "";   // "" = sem cabeçalho visível acima (resolve decide)
+                cur.prefix = date == null;
+                cur.block = block;
                 cur.fare = money(f.group(1));
                 continue;
             }
@@ -184,6 +233,7 @@ public final class HistoryParser {
             }
         }
         if (cur != null) finish(cur, out);
+        markOutOfOrder(out);
         return out;
     }
 

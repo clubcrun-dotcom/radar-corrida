@@ -53,12 +53,15 @@ public final class Calculator {
         List<String> reasons = new ArrayList<>();
 
         // 1. Filtros eliminatórios
+        // Busca estimada (não lida na tela) não recusa sozinha: avisa e deixa o motorista conferir.
         boolean blocked = false;
         if (p.maxPickupKm > 0 && o.pickupKm > p.maxPickupKm) {
-            blocked = true;
-            reasons.add(f("✘ busca %.1f km > %.1f km", o.pickupKm, p.maxPickupKm));
+            blocked = !o.pickupEstimated;
+            reasons.add(o.pickupEstimated
+                    ? f("? busca ~%.1f km (confira no cartão)", o.pickupKm)
+                    : f("✘ busca %.1f km > %.1f km", o.pickupKm, p.maxPickupKm));
         }
-        if (p.maxPickupMin > 0 && o.pickupMin > p.maxPickupMin) {
+        if (p.maxPickupMin > 0 && o.pickupMin > p.maxPickupMin && !o.pickupEstimated) {
             blocked = true;
             reasons.add(f("✘ busca %.0f min > %.0f min", o.pickupMin, p.maxPickupMin));
         }

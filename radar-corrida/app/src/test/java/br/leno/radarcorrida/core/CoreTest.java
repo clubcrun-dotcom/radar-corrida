@@ -573,11 +573,11 @@ public class CoreTest {
                 "qua., 28 de out.",
                 "R$ 42,76", "Aumentou", "\u2066Uber X\u2069 · \u206648 min 35 segundos\u2069 · \u206625.84 km\u2069", "6:28",
                 "R$ 6,60 Pedágio", "R. Dr. Alfredo Backer, São Gonçalo", "Centro, Rio de Janeiro",
-                "R$ 15,10", "\u2066Uber X\u2069 · \u2066Você cancelou\u2069", "18:40",
+                "R$ 15,10", "\u2066Uber X\u2069 · \u2066Você cancelou\u2069", "5:10",
                 "ter., 20 de out.",
-                "R$ 180,00", "Promoção", "6:59",
                 "R$ 21,90", "\u2066Prioridade\u2069 · \u20661 h 5 min\u2069 · \u206630.2 km\u2069", "19:12",
                 "R$ 5,50 Preço dinâmico",
+                "R$ 180,00", "Promoção", "6:59",
                 "R$ 9,99", "\u2066Uber X\u2069 · \u206612 min");                                       // cortada na borda
     }
 
@@ -597,11 +597,11 @@ public class CoreTest {
         assertEquals(6.60, a.toll, EPS);
         assertEquals(36.16, a.earnings(), EPS);
         assertEquals(true, t.get(1).cancelled);
-        assertEquals(true, t.get(2).promo);
-        assertEquals("2026-10-20", t.get(2).date);
-        assertEquals(65.0, t.get(3).minutes, EPS);
-        assertEquals(5.50, t.get(3).surge, EPS);
-        assertEquals(6, t.get(3).hour() / 3);
+        assertEquals(true, t.get(3).promo);
+        assertEquals("2026-10-20", t.get(3).date);
+        assertEquals(65.0, t.get(2).minutes, EPS);
+        assertEquals(5.50, t.get(2).surge, EPS);
+        assertEquals(19, t.get(2).hour());
     }
 
     @Test
@@ -620,7 +620,7 @@ public class CoreTest {
         assertEquals(t.size(), back.size());
         assertEquals(t.get(0).key(), back.get(0).key());
         assertEquals(6.60, back.get(0).toll, EPS);
-        assertEquals(true, back.get(2).promo);
+        assertEquals(true, back.get(3).promo);
     }
 
     @Test
@@ -711,5 +711,88 @@ public class CoreTest {
         assertEquals(7, r.trips);
         assertEquals(180.0, r.promos, EPS);
         System.out.println("ROLAGEM REAL:\n" + r.text(lenoCar()));
+    }
+
+    // ---- Cabeçalho do dia que não veio no texto da tela (caso real: 45,44 de 28/08 gravada como 01/09) ----
+    @Test
+    public void history_missingDayHeader_isDetectedByTimeOrder() {
+        java.util.List<String> broken = Arrays.asList("Histórico de ganhos", "ter., 1 de set.",
+                "R$ 17,31", "Uber X · 11 min 48 segundos · 5.58 km", "19:25",
+                "R$ 61,43", "Uber X · 1 h 5 min · 30.01 km", "18:16", "R$ 6,60 Pedágio",
+                // aqui faltou "sex., 28 de ago."
+                "R$ 45,44", "Uber X · 1 h 16 min · 25.62 km", "19:13",
+                "ter., 25 de ago.",
+                "R$ 23,29", "Uber X · 23 min 30 segundos · 9.98 km", "18:43");
+        java.util.Map<String, String> known = new java.util.HashMap<>();
+        java.util.List<HistoryParser.Trip> t = HistoryParser.parse(broken, 2026, 10, known);
+        assertEquals(3, t.size());                                   // a 45,44 fica de fora (data incerta)
+        for (HistoryParser.Trip x : t) assertEquals(false, x.fare == 45.44);
+        assertEquals("2026-08-25", t.get(2).date);
+
+        // Se a mesma corrida já foi vista com o cabeçalho certo, ela entra com a data certa.
+        java.util.List<HistoryParser.Trip> ok = HistoryParser.parse(Arrays.asList("Histórico de ganhos",
+                "sex., 28 de ago.", "R$ 45,44", "Uber X · 1 h 16 min · 25.62 km", "19:13"), 2026, 10, known);
+        assertEquals("2026-08-28", ok.get(0).date);
+        java.util.List<HistoryParser.Trip> again = HistoryParser.parse(broken, 2026, 10, known);
+        assertEquals(4, again.size());
+        assertEquals("2026-08-28", again.get(2).date);
+    }
+
+    @Test
+    public void history_dedupe_keepsFirst() {
+        String csv = HistoryParser.CSV_HEADER
+                + "2026-08-28;19:13;Uber X;45,44;76,0;25,62;8,00;6,60;0,00;nao;nao\n"
+                + "2026-08-25;18:43;Uber X;23,29;23,5;9,98;5,50;0,00;0,00;nao;nao\n"
+                + "2026-09-01;19:13;Uber X;45,44;76,0;25,62;8,00;6,60;0,00;nao;nao\n";
+        java.util.List<HistoryParser.Trip> t = HistoryParser.dedupe(HistoryParser.fromCsv(csv));
+        assertEquals(2, t.size());
+        assertEquals("2026-08-28", t.get(0).date);
+    }
+
+    // ---- Quadros reais de 31/10 22:54–22:58 (SG): busca e viagem trocavam entre quadros ----
+    private static Offer frame(String... l) { return only(Arrays.asList(l)); }
+
+    @Test
+    public void ocr_tripLineTypos_keepPickupAndTripStable() {
+        String[] head = {"2 UberX", "X", "R$ 19,78", "Est. de R$2,79/km", "9 +R$ 1,50 incluído", "e 6 min•1.9 km",
+                "Av. Maricá, Mutondo, Rio de Janeiro", "* 4,99 (129)", "l parada"};
+        String[][] trips = {{"O 18 minutos5.2 km"}, {"18 minutos•5.2 km"}, {"O 18 nminutos •5.2 km"}};
+        for (String[] t : trips) {
+            java.util.List<String> l = new java.util.ArrayList<>(Arrays.asList(head));
+            l.addAll(Arrays.asList(t));
+            l.addAll(Arrays.asList("Rua Coronel Camisão, 456, Mutuá,", "São Gonçalo", "Tenho interesse"));
+            Offer o = only(l);
+            assertEquals(t[0], 1.9, o.pickupKm, EPS);
+            assertEquals(t[0], 6.0, o.pickupMin, EPS);
+            assertEquals(t[0], 5.2, o.tripKm, EPS);
+            assertEquals(t[0], 18.0, o.tripMin, EPS);
+            assertEquals(false, o.pickupEstimated);
+        }
+        Offer a = frame("UberX", "X", "R$ 14,05", "Est. de R$3,12/km", ") +R$ 1,50 incluído", "a 5 min 1.6 km",
+                "Rua Expedicionário Pinto", "* 4,88 (544)", "O8 minutos2.9 km", "Rua Batista da Costa, 210, Mutondo,", "Tenho interesse");
+        assertEquals(1.6, a.pickupKm, EPS);
+        assertEquals(2.9, a.tripKm, EPS);
+        Offer b = frame("9 UberX", "X", "R$ 17,51", "Est. de R$2,58/km", "9 +R$ 1,50 incluído", "8 6mnin •1.8 km",
+                "Avenida José Mendonça Campos,", "* 4,96 (722)", "O 1l minutos5.0 km", "Rua Arlindo Carvalho, 132, Boaçu,", "Tenho interesse");
+        assertEquals(1.8, b.pickupKm, EPS);
+        assertEquals(6.0, b.pickupMin, EPS);
+        assertEquals(5.0, b.tripKm, EPS);
+        assertEquals(11.0, b.tripMin, EPS);
+        Offer c = frame("2 UberX", "X", "R$ 10,47", "Est. de R$1,47/km", ") +R$ l.50 incluído", "e 9 min 3.5 km",
+                "R. São Pedro Alcântara, Alcântara,", "4,82 (1794)", "9 minutos3.6 km", "Rua Angustura, 134, São Gonçalo,", "Tenho interesse");
+        assertEquals(3.5, c.pickupKm, EPS);
+        assertEquals(3.6, c.tripKm, EPS);
+    }
+
+    @Test
+    public void estimatedPickup_doesNotRejectAlone() {
+        Settings s = lenoCar();
+        s.profile.maxPickupKm = 3;
+        Offer o = new Offer(19.78, 5.2, 16, 1.9, 6, "Mutuá, São Gonçalo");
+        o.pickupEstimated = true;
+        Evaluation e = Calculator.evaluate(o, s);
+        assertEquals(false, e.reasonsLine().contains("✘ busca"));
+        Offer real = new Offer(19.78, 5.2, 16, 1.9, 6, "Mutuá, São Gonçalo");
+        assertEquals(Evaluation.Verdict.BAD, Calculator.evaluate(real, s).verdict);
     }
 }

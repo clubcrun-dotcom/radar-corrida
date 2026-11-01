@@ -112,19 +112,19 @@ public final class RideLog {
 
     /** Corridas do histórico já registradas (lido do arquivo). Chamar fora da thread principal se grande. */
     public java.util.List<HistoryParser.Trip> loadHistory() {
-        return HistoryParser.fromCsv(readAll(HISTORY));
+        return HistoryParser.dedupe(HistoryParser.fromCsv(readAll(HISTORY)));
     }
 
     /** Grava só as corridas novas (sem repetir) e devolve quantas eram novas. */
     public synchronized int appendHistory(java.util.List<HistoryParser.Trip> trips) {
         if (historyKeys == null) {
             historyKeys = new java.util.HashSet<>();
-            for (HistoryParser.Trip t : loadHistory()) historyKeys.add(t.key());
+            for (HistoryParser.Trip t : loadHistory()) historyKeys.add(HistoryParser.sig(t));
         }
         StringBuilder sb = new StringBuilder();
         int added = 0;
         for (HistoryParser.Trip t : trips) {
-            if (historyKeys.add(t.key())) {
+            if (historyKeys.add(HistoryParser.sig(t))) {
                 sb.append(HistoryParser.toCsv(t));
                 added++;
             }

@@ -204,6 +204,7 @@ public class RadarService extends AccessibilityService {
         // Leitura por imagem só vale como oferta se a tela tiver cara de oferta (botão/estimativa).
         List<Offer> offers = OfferParser.hasOfferMarker(lines)
                 ? OfferParser.parseAll(lines) : new ArrayList<Offer>();
+        offers = stabilize(offers, now);
         if (!offers.isEmpty()) {
             handleOffers(pkg, offers, true);
         } else {
@@ -211,6 +212,34 @@ public class RadarService extends AccessibilityService {
         }
         // Enquanto há oferta na tela, continua conferindo (detecta troca ou sumiço da oferta).
         if (overlay.isShowing()) scheduleScan(OCR_INTERVAL_MS);
+    }
+
+    /** Última leitura com busca e viagem lidas na tela, por valor da oferta (R$ em centavos). */
+    private final java.util.Map<Long, Offer> directReads = new java.util.HashMap<>();
+    private final java.util.Map<Long, Long> directReadAt = new java.util.HashMap<>();
+
+    /**
+     * A leitura por imagem varia de um quadro para outro. Se neste quadro a busca saiu estimada,
+     * mas a mesma oferta (mesmo valor) foi lida por completo há pouco, usa a leitura completa:
+     * evita o veredito trocar na frente do motorista.
+     */
+    private List<Offer> stabilize(List<Offer> offers, long now) {
+        if (offers.isEmpty()) return offers;
+        List<Offer> out = new ArrayList<>(offers.size());
+        for (Offer o : offers) {
+            long key = Math.round(o.fare * 100);
+            if (!o.pickupEstimated) {
+                directReads.put(key, o);
+                directReadAt.put(key, now);
+                out.add(o);
+                continue;
+            }
+            Offer d = directReads.get(key);
+            Long at = directReadAt.get(key);
+            out.add(d != null && at != null && now - at < 60_000 ? d : o);
+        }
+        if (directReads.size() > 50) { directReads.clear(); directReadAt.clear(); }
+        return out;
     }
 
     private void handleOffers(String pkg, List<Offer> offers, boolean fromOcr) {

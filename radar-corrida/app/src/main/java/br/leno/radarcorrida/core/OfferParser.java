@@ -53,7 +53,8 @@ public final class OfferParser {
             "buscar", "embarque", "away", "pickup"
     };
     private static final String[] TRIP_HINTS = {
-            "viagem", "trip", "destino", "percurso", "corrida de", "total"
+            "viagem", "trip", "destino", "percurso", "corrida de", "total",
+            "minutos"   // Uber: a viagem vem como "18 minutos • 5.2 km"; a busca, "6 min • 1.9 km"
     };
 
     /** Um par distância/tempo encontrado, com a posição (linha) e a dica de papel. */
@@ -125,6 +126,7 @@ public final class OfferParser {
         // Corrige leituras por imagem que perderam a vírgula ("70 km" em vez de "7.0 km",
         // "11 km" em vez de "1.1 km") ou que não acharam a linha da busca.
         Double anchor = perKmAnchor(texts);
+        boolean estimated = false;
         if (anchor != null) {
             double implied = fare / anchor;
             double err = Math.abs(tKm + pKm - implied) / implied;
@@ -146,6 +148,7 @@ public final class OfferParser {
                     double t = tKm;
                     for (double c : tc) if (c < implied && Math.abs(implied - c) < Math.abs(implied - t)) t = c;
                     if (t < implied) {
+                        estimated = true;
                         tKm = t;
                         pKm = implied - t;
                         double speed = trip.min > 0 ? tKm / trip.min : 0;  // km por minuto
@@ -161,6 +164,7 @@ public final class OfferParser {
 
         Offer o = new Offer(fare, round1(pKm), pMin, round1(tKm), trip.min,
                 destinationAfter(texts, trip.line, legs));
+        o.pickupEstimated = estimated || (pickup == null && pKm > 0);
 
         // Sanidade: descarta leituras absurdas (ex.: ganhos do dia confundidos com tarifa).
         double km = o.tripKm + o.pickupKm;
@@ -203,7 +207,9 @@ public final class OfferParser {
     private static final Pattern OCR_MONEY_TAIL = Pattern.compile("((?-i:R\\s?[$S])\\s*\\d+[.,]\\d)[lI|]");
     private static final Pattern OCR_HOUR_L1 = Pattern.compile("(?<![A-Za-zÀ-ÿ])[lI|](?=\\s*h\\s*\\d)");
     private static final Pattern OCR_S5 = Pattern.compile("\\bS(?=\\s*min)");
-    private static final Pattern OCR_MIN_GLUE = Pattern.compile("(?<=min)(?=[lIL|!\\d])");
+    private static final Pattern OCR_MIN_GLUE = Pattern.compile("(?<=min|minutos)(?=[lIL|!\\d])");
+    /** "6mnin", "18 nminutos", "5 rnin" → "min" (letras trocadas pela leitura por imagem). */
+    private static final Pattern OCR_MIN_TYPO = Pattern.compile("(?<=[\\d\\s])(?:[nr]m|m[nr]|rn)in(?=utos|[^a-zA-Z]|$)");
     private static final Pattern OCR_BEFORE_KM = Pattern.compile(
             "(?<![A-Za-zÀ-ÿ])([0-9lIL|!O][0-9lIL|!O.,]{0,5})(\\s*km\\b)");
     private static final Pattern OCR_BEFORE_MIN = Pattern.compile(
@@ -222,6 +228,7 @@ public final class OfferParser {
             s = OCR_MONEY_TAIL.matcher(s).replaceAll("$11");      // "R$ 13,9l" → "R$ 13,91"
         }
         if (s.indexOf('k') >= 0) s = OCR_KM_TYPO.matcher(s).replaceAll("km");  // "2.6 knm" → "2.6 km"
+        if (s.indexOf("in") >= 0) s = OCR_MIN_TYPO.matcher(s).replaceAll("min");
         if (s.indexOf("km") < 0 && s.indexOf("min") < 0) return s;
         s = OCR_S5.matcher(s).replaceAll("5");
         s = OCR_HOUR_L1.matcher(s).replaceAll("1");                         // "lh17 min" → "1h17 min"

@@ -279,6 +279,7 @@ final class OverlayCard {
                 e.offer.fare, e.totalKm, e.totalMin));
         if (e.offer.pickupKm > 0) {
             f.append(String.format(br, " · busca %.1f km em %.0f min", e.offer.pickupKm, e.offer.pickupMin));
+            if (e.offer.pickupEstimated) f.append(" (estimada)");
         }
         footer.setText(f.toString());
     }

@@ -9,6 +9,8 @@ public final class Offer {
     public final double tripMin;
     /** Texto do destino como aparece na tela (pode vir vazio se o app não mostrar). */
     public final String destination;
+    /** true se a busca não foi lida na tela e saiu da conta "total da Uber − viagem". */
+    public boolean pickupEstimated;
 
     public Offer(double fare, double pickupKm, double pickupMin, double tripKm, double tripMin) {
         this(fare, pickupKm, pickupMin, tripKm, tripMin, "");
