@@ -82,8 +82,14 @@ final class ScreenOcr {
         try {
             Bitmap hw = Bitmap.wrapHardwareBuffer(hb, result.getColorSpace());
             if (hw != null) {
-                soft = hw.copy(Bitmap.Config.ARGB_8888, false);
+                soft = hw.copy(Bitmap.Config.ARGB_8888, true);
                 hw.recycle();
+                if (soft != null && exclude != null) {
+                    // Apaga a área da etiqueta do Radar antes de ler, para nunca ler a si mesmo.
+                    android.graphics.Paint black = new android.graphics.Paint();
+                    black.setColor(android.graphics.Color.BLACK);
+                    new android.graphics.Canvas(soft).drawRect(exclude, black);
+                }
             }
         } catch (RuntimeException ignored) {
             soft = null;

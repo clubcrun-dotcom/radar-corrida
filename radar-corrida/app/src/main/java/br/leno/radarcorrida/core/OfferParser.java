@@ -198,6 +198,10 @@ public final class OfferParser {
 
     // ---- Correção de leitura por imagem (OCR) ----
 
+    private static final Pattern OCR_KM_TYPO = Pattern.compile("(?<=\\d\\s?|\\d)k[mnr]{1,3}\\b");
+    private static final Pattern OCR_MONEY_L1 = Pattern.compile("((?-i:R\\s?[$S])\\s*)[lIL|](?=[.,]\\d)");
+    private static final Pattern OCR_MONEY_TAIL = Pattern.compile("((?-i:R\\s?[$S])\\s*\\d+[.,]\\d)[lI|]");
+    private static final Pattern OCR_HOUR_L1 = Pattern.compile("(?<![A-Za-zÀ-ÿ])[lI|](?=\\s*h\\s*\\d)");
     private static final Pattern OCR_S5 = Pattern.compile("\\bS(?=\\s*min)");
     private static final Pattern OCR_MIN_GLUE = Pattern.compile("(?<=min)(?=[lIL|!\\d])");
     private static final Pattern OCR_BEFORE_KM = Pattern.compile(
@@ -212,8 +216,15 @@ public final class OfferParser {
      */
     static String normalizeOcr(String t) {
         if (t == null) return null;
-        if (t.indexOf("km") < 0 && t.indexOf("min") < 0) return t;
-        String s = OCR_S5.matcher(t).replaceAll("5");
+        String s = t;
+        if (s.indexOf('R') >= 0) {
+            s = OCR_MONEY_L1.matcher(s).replaceAll("$11");        // "R$L,60" → "R$1,60"
+            s = OCR_MONEY_TAIL.matcher(s).replaceAll("$11");      // "R$ 13,9l" → "R$ 13,91"
+        }
+        if (s.indexOf('k') >= 0) s = OCR_KM_TYPO.matcher(s).replaceAll("km");  // "2.6 knm" → "2.6 km"
+        if (s.indexOf("km") < 0 && s.indexOf("min") < 0) return s;
+        s = OCR_S5.matcher(s).replaceAll("5");
+        s = OCR_HOUR_L1.matcher(s).replaceAll("1");                         // "lh17 min" → "1h17 min"
         s = OCR_MIN_GLUE.matcher(s).replaceAll(" ");
         s = fixDigits(OCR_BEFORE_KM, s);
         s = fixDigits(OCR_BEFORE_MIN, s);
@@ -235,6 +246,23 @@ public final class OfferParser {
         List<String> out = new ArrayList<>(texts.size());
         for (String t : texts) out.add(normalizeOcr(t));
         return out;
+    }
+
+    private static final String[] OFFER_MARKERS = {
+            "est. de", "est de", "interesse", "aceitar", "recusar", "selecionar", "oferecer"
+    };
+
+    /**
+     * Tela de oferta tem botão ou estimativa ("Tenho interesse", "Aceitar", "Est. de R$/km").
+     * Telas de histórico de ganhos, por exemplo, têm valor, tempo e km, mas não são oferta.
+     */
+    public static boolean hasOfferMarker(List<String> texts) {
+        for (String t : texts) {
+            if (t == null) continue;
+            String low = t.toLowerCase(Locale.ROOT);
+            for (String m : OFFER_MARKERS) if (low.contains(m)) return true;
+        }
+        return false;
     }
 
     private static final Pattern HAS_LETTER = Pattern.compile("\\p{L}{3,}");

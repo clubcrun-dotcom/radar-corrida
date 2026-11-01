@@ -21,7 +21,7 @@ android {
         minSdk = 22          // Android 5.1+: roda em celulares e tablets antigos
         targetSdk = 35
         versionCode = buildNumber
-        versionName = "0.4.$buildNumber"
+        versionName = "0.9.$buildNumber"
     }
 
     signingConfigs {

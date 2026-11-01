@@ -37,7 +37,11 @@ import br.leno.radarcorrida.core.Ranker;
 public class MainActivity extends Activity {
     private LinearLayout col;
     private TextView status, costInfo, simOut;
-    private EditText fuel, kmpl, extra;
+    private EditText fuel, kmpl, extra, goal, hours, busy, pMinProfitH;
+    private TextView goalInfo, dayInfo, realInfo, histBanner;
+    private CheckBox pDetour;
+    private RadioButton goalGross, goalNet;
+    private java.util.List<br.leno.radarcorrida.core.GoalCheck.Seen> seenCache;
     private Spinner profileSpinner;
     private ArrayAdapter<String> profileAdapter;
     private EditText pName, pMinKm, pMinH, pMinProfit, pRoute, pMaxPickKm, pMaxPickMin;
@@ -161,6 +165,66 @@ public class MainActivity extends Activity {
         costInfo.setPadding(0, dp(4), 0, 0);
         col.addView(costInfo);
 
+        histBanner = new TextView(this);
+        histBanner.setTextSize(14);
+        histBanner.setPadding(dp(10), dp(8), dp(10), dp(8));
+        histBanner.setBackgroundColor(0xFFFFF3E0);
+        col.addView(histBanner);
+
+        // ---- Meta do dia ----
+        title("Meta do dia", 18);
+        dayInfo = new TextView(this);
+        dayInfo.setTextSize(15);
+        dayInfo.setTypeface(Typeface.DEFAULT_BOLD);
+        dayInfo.setLineSpacing(0, 1.15f);
+        dayInfo.setPadding(dp(10), dp(8), dp(10), dp(8));
+        dayInfo.setBackgroundColor(0xFFE3F2FD);
+        col.addView(dayInfo);
+        RadioGroup gk = new RadioGroup(this);
+        goalGross = new RadioButton(this);
+        goalGross.setText("Bruto: o que o app de corrida paga");
+        goalNet = new RadioButton(this);
+        goalNet.setText("Lucro líquido: já descontado o custo do carro");
+        gk.addView(goalGross);
+        gk.addView(goalNet);
+        col.addView(gk);
+        boolean net = sp.getBoolean(Prefs.K_NET, false);
+        goalNet.setChecked(net);
+        goalGross.setChecked(!net);
+        goal = field("Meta por dia (R$)", null, sp.getString(Prefs.K_GOAL, "100"));
+        hours = field("Horas disponíveis por dia", null, sp.getString(Prefs.K_HOURS, "3"));
+        busy = field("Tempo com passageiro (%)",
+                "Parte do tempo online que você está em corrida (indo buscar + levando). "
+                        + "O resto é espera e volta, sem ganho. 60% é um bom ponto de partida.",
+                sp.getString(Prefs.K_BUSY, "60"));
+        goalInfo = new TextView(this);
+        goalInfo.setTextSize(14);
+        goalInfo.setLineSpacing(0, 1.15f);
+        goalInfo.setPadding(dp(10), dp(8), dp(10), dp(8));
+        col.addView(goalInfo);
+        button("Usar esse valor como meta por hora do perfil", v -> {
+            br.leno.radarcorrida.core.Settings g = liveGoal();
+            String val = Prefs.edit(Math.ceil(g.neededProfitPerHourPerRide()));
+            if (g.netGoal) {
+                pMinProfitH.setText(val);
+                pMinH.setText("");
+            } else {
+                pMinH.setText(val);
+                pMinProfitH.setText("");
+            }
+            save(true);
+        });
+        gk.setOnCheckedChangeListener((group, id) -> updateCostInfo());
+
+        // ---- Números reais ----
+        title("Seus números reais (histórico da Uber)", 18);
+        realInfo = new TextView(this);
+        realInfo.setTextSize(14);
+        realInfo.setLineSpacing(0, 1.15f);
+        realInfo.setPadding(dp(10), dp(8), dp(10), dp(8));
+        realInfo.setBackgroundColor(0xFFF1F8E9);
+        col.addView(realInfo);
+
         // ---- Perfil ----
         title("Perfil de motorista", 18);
         profileSpinner = new Spinner(this);
@@ -186,8 +250,10 @@ public class MainActivity extends Activity {
         col.addView(rg);
 
         hint("Metas — deixe em branco para desligar");
+        pMinProfitH = field("Lucro mínimo por hora (R$/h)",
+                "Lucro limpo ÷ tempo da corrida (busca + viagem). É o que paga o seu tempo.", "");
         pMinKm = field("Mínimo R$/km", "Valor ÷ km total. Remunera o desgaste do carro.", "");
-        pMinH = field("Mínimo R$/hora", "Valor ÷ tempo total. Remunera o seu tempo.", "");
+        pMinH = field("Mínimo R$/hora (bruto)", "Valor ÷ tempo total (busca + viagem).", "");
         pMinProfit = field("Lucro mínimo (%)",
                 "(Valor − custo por km × km) ÷ valor. Mostra quanto sobra de cada real.", "");
         pRoute = field("Bairros/cidades do seu trajeto",
@@ -198,6 +264,9 @@ public class MainActivity extends Activity {
         hint("Filtros eliminatórios — recusa sempre que passar do limite");
         pMaxPickKm = field("Busca máxima (km até o passageiro)", null, "");
         pMaxPickMin = field("Busca máxima (minutos até o passageiro)", null, "");
+        pDetour = new CheckBox(this);
+        pDetour.setText("No trajeto (casa ↔ trabalho), contar só o custo do desvio até o passageiro");
+        col.addView(pDetour);
         pIncludePickup = new CheckBox(this);
         pIncludePickup.setText("Somar o deslocamento até o passageiro no km e no tempo");
         col.addView(pIncludePickup);
@@ -255,6 +324,7 @@ public class MainActivity extends Activity {
         button("Compartilhar corridas.csv", v -> share(RideLog.RIDES, 200_000));
         button("Compartilhar telas.txt (diagnóstico)", v -> share(RideLog.SCREENS, 90_000));
         button("Compartilhar descoberta.txt", v -> share(RideLog.DISCOVERY, 20_000));
+        button("Compartilhar historico.csv (corridas reais)", v -> share(RideLog.HISTORY, 200_000));
         button("Apagar registros", v -> {
             log.clearAll();
             toast("Registros apagados");
@@ -275,6 +345,9 @@ public class MainActivity extends Activity {
         extra.addTextChangedListener(live);
         pMinProfit.addTextChangedListener(live);
         pMinKm.addTextChangedListener(live);
+        goal.addTextChangedListener(live);
+        hours.addTextChangedListener(live);
+        busy.addTextChangedListener(live);
     }
 
     @Override
@@ -285,6 +358,24 @@ public class MainActivity extends Activity {
 
     private void refreshStatus() {
         if (!built) return;
+        seenCache = null;   // relê as ofertas do turno ao voltar para o app
+        updateCostInfo();
+        br.leno.radarcorrida.core.Settings st = Prefs.settings(this);
+        java.util.List<br.leno.radarcorrida.core.HistoryParser.Trip> hist = log.loadHistory();
+        realInfo.setText(br.leno.radarcorrida.core.RealStats.of(hist, st).text(st));
+        String last = Prefs.sp(this).getString(Prefs.K_HIST_LAST, "");
+        if (Prefs.today().equals(last)) {
+            histBanner.setVisibility(View.GONE);
+        } else {
+            histBanner.setVisibility(View.VISIBLE);
+            histBanner.setText("📋 Lembrete: na Uber, abra Ganhos → Histórico de ganhos e role a lista até "
+                    + "as corridas mais recentes. O Radar registra sozinho"
+                    + (last.isEmpty() ? "." : " (último registro: " + last + ")."));
+        }
+        br.leno.radarcorrida.core.DayTracker d = Prefs.loadDay(this);
+        double goalV = Prefs.settings(this).dailyGoal;
+        dayInfo.setText(Prefs.today().equals(d.day) ? d.summary(goalV)
+                : "Hoje: ainda sem leitura. Abra a Uber e fique online para o Radar acompanhar a meta.");
         boolean on = serviceEnabled();
         status.setText(on
                 ? "● Ativo — a etiqueta aparece quando chegar uma oferta."
@@ -307,6 +398,7 @@ public class MainActivity extends Activity {
         ruleAny.setChecked(!p.matchAll);
         pMinKm.setText(Prefs.edit(p.minRsPerKm));
         pMinH.setText(Prefs.edit(p.minRsPerHour));
+        pMinProfitH.setText(Prefs.edit(p.minProfitPerHour));
         pMinProfit.setText(Prefs.edit(p.minProfitPct));
         StringBuilder kw = new StringBuilder();
         for (String k : p.routeKeywords) kw.append(kw.length() > 0 ? "\n" : "").append(k);
@@ -314,6 +406,7 @@ public class MainActivity extends Activity {
         pMaxPickKm.setText(Prefs.edit(p.maxPickupKm));
         pMaxPickMin.setText(Prefs.edit(p.maxPickupMin));
         pIncludePickup.setChecked(p.includePickup);
+        pDetour.setChecked(p.routeDetourCostOnly);
     }
 
     private void collectProfile(Profile p) {
@@ -322,11 +415,13 @@ public class MainActivity extends Activity {
         p.matchAll = !ruleAny.isChecked();
         p.minRsPerKm = Prefs.num(pMinKm.getText().toString(), 0);
         p.minRsPerHour = Prefs.num(pMinH.getText().toString(), 0);
+        p.minProfitPerHour = Prefs.num(pMinProfitH.getText().toString(), 0);
         p.minProfitPct = Math.min(99, Prefs.num(pMinProfit.getText().toString(), 0));
         p.routeKeywords = Profile.parseKeywords(pRoute.getText().toString());
         p.maxPickupKm = Prefs.num(pMaxPickKm.getText().toString(), 0);
         p.maxPickupMin = Prefs.num(pMaxPickMin.getText().toString(), 0);
         p.includePickup = pIncludePickup.isChecked();
+        p.routeDetourCostOnly = pDetour.isChecked();
     }
 
     private void newProfile() {
@@ -370,6 +465,10 @@ public class MainActivity extends Activity {
         e.putString(Prefs.K_FUEL, fuel.getText().toString());
         e.putString(Prefs.K_KMPL, kmpl.getText().toString());
         e.putString(Prefs.K_EXTRA, extra.getText().toString());
+        e.putString(Prefs.K_GOAL, goal.getText().toString());
+        e.putString(Prefs.K_HOURS, hours.getText().toString());
+        e.putString(Prefs.K_BUSY, busy.getText().toString());
+        e.putBoolean(Prefs.K_NET, goalNet.isChecked());
         e.putString(Prefs.K_OVERLAY_Y, overlayY.getText().toString());
         e.putString(Prefs.K_PACKAGES, packages.getText().toString());
         e.putBoolean(Prefs.K_DEBUG, debug.isChecked());
@@ -404,6 +503,33 @@ public class MainActivity extends Activity {
                     .append("/km sobram ").append(Prefs.edit(Math.round(margin))).append("% de cada real");
         }
         costInfo.setText(sb.toString());
+
+        if (goalInfo != null) {
+            br.leno.radarcorrida.core.Settings g = liveGoal();
+            if (seenCache == null) {
+                seenCache = br.leno.radarcorrida.core.GoalCheck.fromCsv(log.tail(RideLog.RIDES, 400_000));
+            }
+            br.leno.radarcorrida.core.GoalCheck c =
+                    br.leno.radarcorrida.core.GoalCheck.run(g, g.netGoal, seenCache);
+            goalInfo.setText("CHECAGEM DE REALIDADE\n" + c.text());
+            int bg;
+            switch (c.status) {
+                case OK: bg = 0xFFE8F5E9; break;
+                case TIGHT: bg = 0xFFFFF8E1; break;
+                case UNLIKELY: bg = 0xFFFFEBEE; break;
+                default: bg = 0xFFF1F3F4; break;
+            }
+            goalInfo.setBackgroundColor(bg);
+        }
+    }
+
+    private br.leno.radarcorrida.core.Settings liveGoal() {
+        br.leno.radarcorrida.core.Settings g = Prefs.settings(this);
+        g.dailyGoal = Prefs.num(goal.getText().toString(), g.dailyGoal);
+        g.dailyHours = Prefs.num(hours.getText().toString(), g.dailyHours);
+        g.busyPct = Prefs.num(busy.getText().toString(), g.busyPct);
+        g.netGoal = goalNet.isChecked();
+        return g;
     }
 
     // ---- Simulador ----

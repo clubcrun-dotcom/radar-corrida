@@ -33,6 +33,7 @@ public final class Evaluation {
     public Mark markKm = Mark.NONE;
     public Mark markHour = Mark.NONE;
     public Mark markProfit = Mark.NONE;
+    public Mark markProfitHour = Mark.NONE;
     /** Velocidade média da viagem (km/h), pelo tempo que o app de corrida estima. */
     public double tripSpeedKmh;
     public Mark markTraffic = Mark.NONE;
@@ -40,6 +41,8 @@ public final class Evaluation {
     public String trafficLabel = "";
     /** true se o perfil tem bairros de trajeto cadastrados. */
     public boolean routeConfigured;
+    /** true se o custo considerado foi só o do desvio (corrida no trajeto). */
+    public boolean detourCostOnly;
 
     Evaluation(Offer offer, String profileName, double totalKm, double totalMin,
                double rsPerKm, double rsPerHour, double cost, double profit, double profitPct,
@@ -89,8 +92,8 @@ public final class Evaluation {
         int cut = dest.indexOf(" | ");
         if (cut > 0) dest = dest.substring(0, cut);
         if (dest.length() > 22) dest = dest.substring(0, 21) + "…";
-        String s = String.format(BR, "%s R$ %.2f · %.2f/km · %.0f/h · %.0f%%",
-                mark, offer.fare, rsPerKm, rsPerHour, profitPct);
+        String s = String.format(BR, "%s R$ %.2f · lucro R$ %.0f/h · %.0f%% · %.2f/km",
+                mark, offer.fare, profitPerHour, profitPct, rsPerKm);
         if (routeHit != null) s += " · trajeto";
         if (!dest.isEmpty()) s += " → " + dest;
         return s;

@@ -39,12 +39,17 @@ public final class Calculator {
         double hours = min / 60.0;
         double rsH = hours > 0 ? o.fare / hours : 0;
 
-        double cost = s.costPerKm() * km;
+        // Corrida no trajeto (ex.: casa → trabalho): o km da viagem você rodaria de qualquer jeito.
+        // Com a opção ligada, o custo é só o do desvio (o deslocamento até o passageiro).
+        String routeHitEarly = p.routeMatch(o.destination);
+        boolean detourOnly = p.routeDetourCostOnly && routeHitEarly != null;
+        double costKm = detourOnly ? (p.includePickup ? o.pickupKm : 0) : km;
+        double cost = s.costPerKm() * costKm;
         double profit = o.fare - cost;
         double profitPct = o.fare > 0 ? profit / o.fare * 100.0 : 0;
         double profitH = hours > 0 ? profit / hours : 0;
 
-        String routeHit = p.routeMatch(o.destination);
+        String routeHit = routeHitEarly;
         List<String> reasons = new ArrayList<>();
 
         // 1. Filtros eliminatórios
@@ -70,6 +75,11 @@ public final class Calculator {
             double r = rsH / p.minRsPerHour;
             ratios.add(r); numeric.add(true);
             reasons.add(f("%s R$ %.0f/h (meta %.0f)", mark(r), rsH, p.minRsPerHour));
+        }
+        if (p.minProfitPerHour > 0) {
+            double r = profitH / p.minProfitPerHour;
+            ratios.add(r); numeric.add(true);
+            reasons.add(f("%s lucro R$ %.0f/h (meta %.0f)", mark(r), profitH, p.minProfitPerHour));
         }
         if (p.minProfitPct > 0) {
             double r = profitPct / p.minProfitPct;
@@ -136,8 +146,10 @@ public final class Calculator {
                 score, v, routeHit, reasons);
         ev.markKm = markOf(p.minRsPerKm > 0 ? rsKm / p.minRsPerKm : -1);
         ev.markHour = markOf(p.minRsPerHour > 0 ? rsH / p.minRsPerHour : -1);
+        ev.markProfitHour = markOf(p.minProfitPerHour > 0 ? profitH / p.minProfitPerHour : -1);
         ev.markProfit = markOf(p.minProfitPct > 0 ? profitPct / p.minProfitPct : -1);
         ev.routeConfigured = !p.routeKeywords.isEmpty();
+        ev.detourCostOnly = detourOnly;
 
         // Trânsito: o tempo estimado pelo app de corrida já considera o trânsito atual,
         // então a velocidade média da viagem mostra se a rota está travada.

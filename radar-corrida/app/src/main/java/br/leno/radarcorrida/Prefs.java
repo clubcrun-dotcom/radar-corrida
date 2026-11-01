@@ -32,6 +32,11 @@ public final class Prefs {
     public static final String K_DEBUG = "debug_dump";
     public static final String K_DISCOVERY = "discovery";
     public static final String K_OVERLAY_Y = "overlay_y_dp";
+    public static final String K_GOAL = "daily_goal";
+    public static final String K_HOURS = "daily_hours";
+    public static final String K_BUSY = "busy_pct";
+    public static final String K_NET = "net_goal";
+    public static final String K_HIST_LAST = "hist_last_import";
     public static final String K_CONSENT = "consent_v2";
     public static final String K_OCR = "ocr_enabled";
 
@@ -56,6 +61,10 @@ public final class Prefs {
         s.fuelPrice = num(p.getString(K_FUEL, DEF_FUEL), s.fuelPrice);
         s.kmPerLiter = num(p.getString(K_KMPL, DEF_KMPL), s.kmPerLiter);
         s.extraCostPerKm = num(p.getString(K_EXTRA, DEF_EXTRA), s.extraCostPerKm);
+        s.dailyGoal = num(p.getString(K_GOAL, "100"), s.dailyGoal);
+        s.dailyHours = num(p.getString(K_HOURS, "3"), s.dailyHours);
+        s.busyPct = num(p.getString(K_BUSY, "60"), s.busyPct);
+        s.netGoal = p.getBoolean(K_NET, false);
         List<Profile> profiles = profiles(c);
         s.profile = profiles.get(activeIndex(c, profiles.size()));
         return s;
@@ -101,10 +110,12 @@ public final class Prefs {
         o.put("matchAll", p.matchAll);
         o.put("minRsPerKm", p.minRsPerKm);
         o.put("minRsPerHour", p.minRsPerHour);
+        o.put("minProfitPerHour", p.minProfitPerHour);
         o.put("minProfitPct", p.minProfitPct);
         o.put("maxPickupKm", p.maxPickupKm);
         o.put("maxPickupMin", p.maxPickupMin);
         o.put("includePickup", p.includePickup);
+        o.put("routeDetourCostOnly", p.routeDetourCostOnly);
         JSONArray k = new JSONArray();
         for (String s : p.routeKeywords) k.put(s);
         o.put("routeKeywords", k);
@@ -117,10 +128,12 @@ public final class Prefs {
         p.matchAll = o.optBoolean("matchAll", true);
         p.minRsPerKm = o.optDouble("minRsPerKm", 0);
         p.minRsPerHour = o.optDouble("minRsPerHour", 0);
+        p.minProfitPerHour = o.optDouble("minProfitPerHour", 0);
         p.minProfitPct = o.optDouble("minProfitPct", 0);
         p.maxPickupKm = o.optDouble("maxPickupKm", 0);
         p.maxPickupMin = o.optDouble("maxPickupMin", 0);
         p.includePickup = o.optBoolean("includePickup", true);
+        p.routeDetourCostOnly = o.optBoolean("routeDetourCostOnly", false);
         JSONArray k = o.optJSONArray("routeKeywords");
         if (k != null) {
             for (int i = 0; i < k.length(); i++) {
@@ -129,6 +142,33 @@ public final class Prefs {
             }
         }
         return p;
+    }
+
+    // ---- Acumulado do dia (escrito pelo serviço, lido pela tela) ----
+
+    public static br.leno.radarcorrida.core.DayTracker loadDay(Context c) {
+        SharedPreferences p = sp(c);
+        br.leno.radarcorrida.core.DayTracker d = new br.leno.radarcorrida.core.DayTracker();
+        d.day = p.getString("day_date", "");
+        d.earnings = num(p.getString("day_earn", "-1"), -1);
+        d.onlineMs = p.getLong("day_online_ms", 0);
+        d.lastTs = p.getLong("day_last_ts", 0);
+        d.online = p.getBoolean("day_online", false);
+        return d;
+    }
+
+    public static void saveDay(Context c, br.leno.radarcorrida.core.DayTracker d) {
+        sp(c).edit()
+                .putString("day_date", d.day)
+                .putString("day_earn", String.valueOf(d.earnings))
+                .putLong("day_online_ms", d.onlineMs)
+                .putLong("day_last_ts", d.lastTs)
+                .putBoolean("day_online", d.online)
+                .apply();
+    }
+
+    public static String today() {
+        return new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(new java.util.Date());
     }
 
     // ---- Diagnóstico ----

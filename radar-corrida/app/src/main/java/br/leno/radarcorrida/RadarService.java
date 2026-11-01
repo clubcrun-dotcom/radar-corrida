@@ -55,6 +55,8 @@ public class RadarService extends AccessibilityService {
     private OverlayCard overlay;
     private RideLog log;
     private ScreenOcr ocr;
+    private br.leno.radarcorrida.core.DayTracker day;
+    private long lastDaySave;
 
     private String pendingPkg;
     private boolean scanScheduled;
@@ -78,6 +80,7 @@ public class RadarService extends AccessibilityService {
         overlay = new OverlayCard(this);
         log = new RideLog(this);
         ocr = new ScreenOcr(this);
+        day = Prefs.loadDay(this);
         reload();
         Prefs.sp(this).registerOnSharedPreferenceChangeListener(prefsListener);
     }
@@ -89,6 +92,7 @@ public class RadarService extends AccessibilityService {
         discovery = Prefs.discovery(this);
         ocrEnabled = Prefs.ocr(this);
         overlayYdp = Prefs.overlayYdp(this);
+        if (overlay != null) overlay.setNetMode(settings.netGoal);
         applySystemFilter();
     }
 
@@ -146,6 +150,8 @@ public class RadarService extends AccessibilityService {
 
         List<String> winInfo = new ArrayList<>();
         List<String> texts = collectTexts(pkg, winInfo);
+        trackDay(texts);
+        importHistory(texts);
 
         if (debug && !texts.isEmpty() && looksRelevant(texts)) {
             if (now - lastWindowsDumpAt > WINDOWS_DUMP_EVERY_MS) {
@@ -161,6 +167,12 @@ public class RadarService extends AccessibilityService {
         List<Offer> offers = OfferParser.parseAll(texts);
         if (!offers.isEmpty()) {
             handleOffers(pkg, offers, false);
+            return;
+        }
+
+        // Motorista offline ou em tela que não é de oferta (histórico de ganhos): nada a ler.
+        if (isOffline(texts) || isNonOfferScreen(texts)) {
+            handleNoOffer(now);
             return;
         }
 
@@ -183,7 +195,9 @@ public class RadarService extends AccessibilityService {
         long now = SystemClock.elapsedRealtime();
         if (debug && !lines.isEmpty() && looksRelevant(lines)) log.dumpScreen(pkg + " [imagem]", lines);
 
-        List<Offer> offers = OfferParser.parseAll(lines);
+        // Leitura por imagem só vale como oferta se a tela tiver cara de oferta (botão/estimativa).
+        List<Offer> offers = OfferParser.hasOfferMarker(lines)
+                ? OfferParser.parseAll(lines) : new ArrayList<Offer>();
         if (!offers.isEmpty()) {
             handleOffers(pkg, offers, true);
         } else {
@@ -226,6 +240,68 @@ public class RadarService extends AccessibilityService {
             handler.removeCallbacks(hide);
             handler.postDelayed(hide, gone - (now - lastSeenAt));
         }
+    }
+
+    /** Tela "Histórico de ganhos" aberta: registra as corridas visíveis (sem repetir). */
+    private void importHistory(List<String> texts) {
+        if (!br.leno.radarcorrida.core.HistoryParser.isHistoryScreen(texts)) return;
+        java.util.Calendar c = java.util.Calendar.getInstance();
+        List<br.leno.radarcorrida.core.HistoryParser.Trip> trips = br.leno.radarcorrida.core.HistoryParser
+                .parse(texts, c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH) + 1);
+        if (trips.isEmpty()) return;
+        int added = log.appendHistory(trips);
+        SharedPreferences sp = Prefs.sp(this);
+        if (!Prefs.today().equals(sp.getString(Prefs.K_HIST_LAST, ""))) {
+            sp.edit().putString(Prefs.K_HIST_LAST, Prefs.today()).apply();
+        }
+        if (added > 0) {
+            overlay.showHint("✔ " + added + (added == 1 ? " corrida registrada" : " corridas registradas")
+                    + " no Radar. Continue rolando para registrar mais.", 2500);
+        }
+    }
+
+    /** Fim de sessão (ficou offline): lembra de registrar as corridas de hoje, se ainda não fez. */
+    private void remindHistory() {
+        String last = Prefs.sp(this).getString(Prefs.K_HIST_LAST, "");
+        if (Prefs.today().equals(last)) return;
+        overlay.showHint("📋 Antes de sair: abra Ganhos → Histórico de ganhos e role até as corridas "
+                + "de hoje. O Radar registra sozinho e calcula seus números reais.", 12000);
+    }
+
+    /** Acumulado do dia: ganhos de hoje e tempo online, lidos da tela da Uber. */
+    private void trackDay(List<String> texts) {
+        if (texts.isEmpty()) return;
+        boolean wasOnline = day.online;
+        long wall = System.currentTimeMillis();
+        boolean earnBefore = day.earnings >= 0;
+        double prevEarn = day.earnings;
+        boolean changed = day.onScreen(Prefs.today(), wall, texts);
+        if (wasOnline && !day.online && day.earnings > 0) remindHistory();
+        // Grava logo quando os ganhos mudam; o tempo online, no máximo a cada 30 s.
+        if (changed && (day.earnings != prevEarn || !earnBefore || wall - lastDaySave > 30_000)) {
+            lastDaySave = wall;
+            Prefs.saveDay(this, day);
+        }
+        if (day.earnings >= 0) {
+            overlay.setDayInfo(String.format(java.util.Locale.forLanguageTag("pt-BR"),
+                    "HOJE R$ %.0f/%.0f", day.earnings, settings.dailyGoal));
+        }
+    }
+
+    /** Telas com valores, tempo e km que NÃO são ofertas (ex.: Histórico de ganhos da Uber). */
+    private static boolean isNonOfferScreen(List<String> texts) {
+        for (String t : texts) {
+            if (t.equalsIgnoreCase("Histórico de ganhos") || t.equalsIgnoreCase("Seletor de data")) return true;
+        }
+        return false;
+    }
+
+    /** Telas da Uber de quem está offline ("Você está offline", botão "Ficar online"). */
+    private static boolean isOffline(List<String> texts) {
+        for (String t : texts) {
+            if (t.equalsIgnoreCase("Você está offline") || t.equalsIgnoreCase("Ficar online")) return true;
+        }
+        return false;
     }
 
     /** Só grava no diagnóstico telas com cara de oferta (evita escrever a cada mudança do mapa). */
@@ -301,6 +377,7 @@ public class RadarService extends AccessibilityService {
         handler.removeCallbacksAndMessages(null);
         if (overlay != null) overlay.hide();
         if (ocr != null) ocr.close();
+        if (day != null) Prefs.saveDay(this, day);
         super.onDestroy();
     }
 }

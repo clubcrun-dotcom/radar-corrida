@@ -28,6 +28,8 @@ public final class RideLog {
     public static final String RIDES = "corridas.csv";
     public static final String SCREENS = "telas.txt";
     public static final String DISCOVERY = "descoberta.txt";
+    public static final String HISTORY = "historico.csv";
+    private java.util.Set<String> historyKeys;
 
     private static final long MAX_SCREENS_BYTES = 2L * 1024 * 1024;
     private static final String HEADER =
@@ -102,6 +104,47 @@ public final class RideLog {
             String s = new String(buf, StandardCharsets.UTF_8);
             if (start > 0 && name.equals(RIDES)) s = HEADER + s.substring(s.indexOf('\n') + 1);
             return s;
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
+    /** Corridas do histórico já registradas (lido do arquivo). Chamar fora da thread principal se grande. */
+    public java.util.List<br.leno.radarcorrida.core.HistoryParser.Trip> loadHistory() {
+        return br.leno.radarcorrida.core.HistoryParser.fromCsv(readAll(HISTORY));
+    }
+
+    /** Grava só as corridas novas (sem repetir) e devolve quantas eram novas. */
+    public synchronized int appendHistory(java.util.List<br.leno.radarcorrida.core.HistoryParser.Trip> trips) {
+        if (historyKeys == null) {
+            historyKeys = new java.util.HashSet<>();
+            for (br.leno.radarcorrida.core.HistoryParser.Trip t : loadHistory()) historyKeys.add(t.key());
+        }
+        StringBuilder sb = new StringBuilder();
+        int added = 0;
+        for (br.leno.radarcorrida.core.HistoryParser.Trip t : trips) {
+            if (historyKeys.add(t.key())) {
+                sb.append(br.leno.radarcorrida.core.HistoryParser.toCsv(t));
+                added++;
+            }
+        }
+        if (added > 0) {
+            final File f = file(HISTORY);
+            final boolean fresh = !f.exists() || f.length() == 0;
+            final String body = (fresh ? br.leno.radarcorrida.core.HistoryParser.CSV_HEADER : "") + sb;
+            io.execute(() -> write(f, body));
+        }
+        return added;
+    }
+
+    private String readAll(String name) {
+        File f = file(name);
+        if (!f.exists()) return "";
+        try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+            byte[] buf = new byte[(int) f.length()];
+            int off = 0, r;
+            while (off < buf.length && (r = in.read(buf, off, buf.length - off)) > 0) off += r;
+            return new String(buf, 0, off, StandardCharsets.UTF_8);
         } catch (IOException e) {
             return "";
         }

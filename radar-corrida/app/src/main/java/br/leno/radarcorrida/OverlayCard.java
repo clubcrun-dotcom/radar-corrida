@@ -25,7 +25,7 @@ import br.leno.radarcorrida.core.Evaluation;
  *   ┌──────────────────────────────────────────┐
  *   │ AVALIAR                      NO TRAJETO  │  ← faixa na cor do veredito
  *   ├──────────┬──────────┬──────────┬─────────┤
- *   │ R$/KM    │ R$/HORA  │ LUCRO    │ TRÂNSITO│  ← 4 quadros, cada valor na cor
+ *   │ R$/KM    │ LUCRO/H  │ LUCRO    │ TRÂNSITO│  ← 4 quadros, cada valor na cor
  *   │ 2,16     │ 46       │ 67%      │ 23 km/h │     da sua meta (verde/amarelo/
  *   │          │          │ R$ 11,65 │ moderado│     vermelho; branco = sem meta)
  *   ├──────────┴──────────┴──────────┴─────────┤
@@ -62,6 +62,15 @@ final class OverlayCard {
     private final GradientDrawable routeBg;
     private final LinearLayout list;
     private boolean attached;
+    private int lastYdp = 90;
+    private boolean netMode;
+    private String dayInfo = "";
+
+    /** "HOJE R$ 45/100": progresso da meta, mostrado no canto da faixa do veredito. */
+    void setDayInfo(String s) { this.dayInfo = s == null ? "" : s; }
+
+    /** Meta em lucro líquido (true) ou faturamento bruto (false): define o quadro de R$/hora. */
+    void setNetMode(boolean net) { this.netMode = net; }
 
     /** Um quadro: rótulo pequeno, valor grande colorido, complemento opcional. */
     private final class Tile {
@@ -137,7 +146,7 @@ final class OverlayCard {
         tiles.setOrientation(LinearLayout.HORIZONTAL);
         tiles.setPadding(dp(5), dp(8), dp(5), 0);
         tKm = new Tile("R$/KM");
-        tHour = new Tile("R$/HORA");
+        tHour = new Tile("LUCRO/H");
         tProfit = new Tile("LUCRO");
         tTraffic = new Tile("TRÂNSITO");
         tiles.addView(tKm.box);
@@ -219,10 +228,19 @@ final class OverlayCard {
         verdict.setTextColor(fg);
         badge.setTextColor(fg);
         verdict.setText(title);
-        badge.setVisibility(View.GONE);
+        badge.setText(dayInfo);
+        badge.setVisibility(dayInfo.isEmpty() ? View.GONE : View.VISIBLE);
 
         tKm.set(String.format(br, "%.2f", e.rsPerKm), null, e.markKm);
-        tHour.set(String.format(br, "%.0f", e.rsPerHour), null, e.markHour);
+        if (netMode) {
+            tHour.label.setText("LUCRO/H");
+            tHour.set(String.format(br, "%.0f", e.profitPerHour),
+                    String.format(br, "bruto %.0f", e.rsPerHour), e.markProfitHour);
+        } else {
+            tHour.label.setText("R$/HORA");
+            tHour.set(String.format(br, "%.0f", e.rsPerHour),
+                    String.format(br, "lucro %.0f", e.profitPerHour), e.markHour);
+        }
         tProfit.set(String.format(br, "%.0f%%", e.profitPct),
                 String.format(br, "R$ %.2f", e.profit), e.markProfit);
         if (e.tripSpeedKmh > 0) {
@@ -255,10 +273,12 @@ final class OverlayCard {
             routeBox.setText("DESTINO · " + (dest.isEmpty() ? "não lido" : dest));
         }
 
-        StringBuilder f = new StringBuilder(String.format(br, "R$ %.2f · %.1f km · %.0f min",
+        // "km em X min" (e não "km · X min") para a leitura por imagem nunca confundir o
+        // rodapé da etiqueta com uma oferta.
+        StringBuilder f = new StringBuilder(String.format(br, "R$ %.2f · %.1f km em %.0f min",
                 e.offer.fare, e.totalKm, e.totalMin));
         if (e.offer.pickupKm > 0) {
-            f.append(String.format(br, " · busca %.1f km / %.0f min", e.offer.pickupKm, e.offer.pickupMin));
+            f.append(String.format(br, " · busca %.1f km em %.0f min", e.offer.pickupKm, e.offer.pickupMin));
         }
         footer.setText(f.toString());
     }
@@ -292,6 +312,7 @@ final class OverlayCard {
     }
 
     private void attach(int yDp) {
+        lastYdp = yDp;
         WindowManager.LayoutParams lp = params(yDp);
         try {
             if (attached) {
@@ -303,6 +324,40 @@ final class OverlayCard {
         } catch (RuntimeException ignored) {
             attached = false;
         }
+    }
+
+    // ---- Aviso curto (lembrete / confirmação), separado da etiqueta de oferta ----
+    private TextView hint;
+    private boolean hintAttached;
+    private final android.os.Handler hintHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable hideHint = this::removeHint;
+
+    void showHint(String text, long ms) {
+        if (hint == null) {
+            hint = text(15, true, Color.WHITE);
+            hint.setGravity(Gravity.START);
+            hint.setPadding(dp(14), dp(10), dp(14), dp(10));
+            GradientDrawable g = new GradientDrawable();
+            g.setColor(0xF01565C0);
+            g.setCornerRadius(dp(14));
+            hint.setBackground(g);
+        }
+        hint.setText(text);
+        WindowManager.LayoutParams lp = params(lastYdp);
+        try {
+            if (hintAttached) wm.updateViewLayout(hint, lp);
+            else { wm.addView(hint, lp); hintAttached = true; }
+        } catch (RuntimeException ignored) {
+            hintAttached = false;
+        }
+        hintHandler.removeCallbacks(hideHint);
+        hintHandler.postDelayed(hideHint, ms);
+    }
+
+    private void removeHint() {
+        if (!hintAttached) return;
+        try { wm.removeView(hint); } catch (RuntimeException ignored) { /* já removido */ }
+        hintAttached = false;
     }
 
     void hide() {
@@ -319,7 +374,13 @@ final class OverlayCard {
 
     /** Área da etiqueta na tela (para a leitura por imagem não ler a própria etiqueta). */
     Rect screenRect() {
-        if (!attached || root.getWidth() == 0) return null;
+        if (!attached) return null;
+        if (root.getWidth() == 0 || root.getHeight() == 0) {
+            // Recém-desenhada: usa a área estimada (largura toda, ~330 dp de altura).
+            int w = svc.getResources().getDisplayMetrics().widthPixels;
+            int top = dp(lastYdp);
+            return new Rect(0, Math.max(0, top - dp(8)), w, top + dp(330));
+        }
         int[] xy = new int[2];
         root.getLocationOnScreen(xy);
         int m = dp(8);

@@ -125,6 +125,8 @@ public class CoreTest {
         s.fuelPrice = 6.45;
         s.kmPerLiter = 14;
         s.profile = Profile.extraIncomeRoute();
+        s.profile.minProfitPerHour = 0;   // estes testes cobrem a regra de lucro %
+        s.profile.minProfitPct = 90;
         s.profile.routeKeywords = Profile.parseKeywords("Colubande, Alcântara\nNiteroi");
         return s;
     }
@@ -252,6 +254,7 @@ public class CoreTest {
         Settings s = new Settings();
         s.fuelPrice = 6.50; s.kmPerLiter = 13; s.extraCostPerKm = 0.22;
         s.profile = Profile.extraIncomeRoute();
+        s.profile.minProfitPerHour = 0;
         s.profile.minProfitPct = 70;
         Evaluation e = Calculator.evaluate(o, s);
         assertEquals(2.16, e.rsPerKm, EPS);   // bate com o "Est. de R$2,16/km" da própria Uber
@@ -348,6 +351,7 @@ public class CoreTest {
         Settings s = new Settings();
         s.fuelPrice = 6.50; s.kmPerLiter = 13; s.extraCostPerKm = 0.22;
         s.profile = Profile.extraIncomeRoute();
+        s.profile.minProfitPerHour = 0;
         s.profile.minProfitPct = 70;
         Evaluation e = Calculator.evaluate(o, s);
         assertEquals(2.16, e.rsPerKm, EPS);
@@ -367,6 +371,7 @@ public class CoreTest {
         Settings s = new Settings();
         s.fuelPrice = 6.50; s.kmPerLiter = 13; s.extraCostPerKm = 0.22;
         s.profile = Profile.extraIncomeRoute();
+        s.profile.minProfitPerHour = 0;
         s.profile.minProfitPct = 70;
         Evaluation e = Calculator.evaluate(new Offer(17.48, 1.1, 5, 7.0, 18), s);
         assertEquals(Evaluation.Mark.NEAR, e.markProfit);   // 67% de 70%
@@ -375,5 +380,280 @@ public class CoreTest {
         assertEquals("moderado", e.trafficLabel);
         Evaluation jam = Calculator.evaluate(new Offer(20, 1, 5, 5.0, 25), s);   // 12 km/h
         assertEquals("pesado", jam.trafficLabel);
+    }
+
+    // ---- Ofertas REAIS da Uber lidas por imagem no turno de 31/10 (16:27–18:09) ----
+
+    private static void checkReal(double fare, double pKm, double tKm, String... lines) {
+        Offer o = only(Arrays.asList(lines));
+        assertEquals(java.util.Arrays.toString(lines), fare, o.fare, 0.02);
+        assertEquals(java.util.Arrays.toString(lines), pKm, o.pickupKm, 0.06);
+        assertEquals(java.util.Arrays.toString(lines), tKm, o.tripKm, 0.06);
+    }
+
+    @Test
+    public void realShift_2026_10_31() {
+        checkReal(21.81, 2.4, 11.2, "16:27 2min", "Radar de Viagens 2", "1-2 min", "uberX", "X",
+                "R$ 21,81l", "Est. de R$1,60/km", "8 8 min 2.4 km", "Rua Expedicionário Osvaldo",
+                "Conceição, Jardim Nova República,", "São Gonçalo", "* 4,94 (689) OVerificade",
+                "16 minutos•11.2 km", "R. Joaquim Lavoura, 353, Monjolos,", "Monjolos", "Tenho interesse");
+        checkReal(21.81, 2.4, 11.2, "Radar de Viagens2", "2 UberX", "X", "R$ 21,81", "Est. de R$L,60/km",
+                "a 8 min 2.4 km", "Rua Expedicionário Osvaldo", "Conceição, Jardim Nova República,",
+                "São Gonçalo", "* 4,94 (689)", "OVerificado", ". 16 minutos • 1l.2 km",
+                "R. Joaquim Lavoura, 353, Monjolos,", "Monjolos", "Tenho interesse");
+        checkReal(21.81, 2.4, 11.2, "2 UberX", "R$ 21,81", "Est. de R$L,60/km", "a 8 min 2.4 km",
+                "São Gonçalo", "O 16 minutos l1.2 km", "Monjolos", "Tenho interesse", "<");
+        checkReal(8.77, 2.6, 1.7, "16:27 D→•", "NlG25", "UberX", "X", "R$ 8,77", "Est. de R$2,04/km",
+                "2 9 min 2.6 knm", "Estr. Ver. Luiz Carlos Silva, Galo", "Branco, Rio de Janeiro",
+                "* 4,97 (286)", "6 minutos •1.7 km", "Av. Jornalista Roberto Marinho, 221,",
+                "Mutondo, São Gonçalo", "Tenho interesse", "Ninjdb");
+        checkReal(11.87, 1.9, 5.2, "UberX", "X", "R$ 11,87", "Est. de R$1,67/kmn", "6 min •1.9 km",
+                "Av. Jornalista Roberto Marinho,", "Mutondo, São Gonçalo", "* 4,85 (134)",
+                "15 minutos 5.2 km", "Rua Padre Nicolau Luís, 203, Porto", "do Rosa, São Gonçalo", "Tenho interesse");
+        checkReal(25.98, 0.7, 9.5, "Praça do Barenco", "São Gonçalo", "Praça Colubandê", "2 UberX Exclusivo",
+                "X", "R$ 25,98", "Est. de R$2,55/km", "8 4 min 0.7 km", "R. Antônio Barradas, Colubandê,",
+                "São Gonçalo", "4,98 (87)", "24 minutos 9.5 km", "R. Dr. Porciúncula, 2424, Venda da",
+                "Cruz, São Gonçalo", "de", "Aceitar");
+        checkReal(9.95, 2.4, 1.6, "UberX", "X", "R$ 9,95", "Est. de R$2,49/km", "aç", "e 9 min 2.4 km",
+                "Rua Pastor Avelino de Souza, Jardim", "Nova República, São Gonçalo", "* 4,91 (251)",
+                "Verificado", "5 minutos•l.6 km", "Avenida Doutor Eugênio Borges,",
+                "850, Tribobó lI, São Gonçalo", "ai", "rk", "Tenho interesse");
+        checkReal(13.91, 1.2, 2.5, "DA MARICA", "Ayena", "al", "8", "UberX", "X", "no", "R$ 13,9l",
+                "Est. de R$3,76/km", "e 4 min •l.2 km", "Rua Teresa Martins, Colubandê, Säo", "Gonçalo",
+                "4,80 (520)", "l parada", "15 minutos 2.5 km", "Estrada Vereador Luiz Carlos da",
+                "Silva, 338, São Gonçalo, São", "ite", "Gonçalo", "pa", "Tenho interesse");
+        checkReal(9.48, 1.9, 2.2, "uberX", "X", "R$ 9,48", "Est. de R$2,31/km", "6 min •l9 km",
+                "Al. Engenheiro Joao Corner, Tribobó", "1, São Gonçalo", "* 4,86 (1562) O Verificado",
+                "5 minutos• 2.2 km", "Rua Capitão Juvenal Figueiredo,", "235, Colubandê, São Gonçalo",
+                "Tenho interesse");
+    }
+
+    @Test
+    public void overlayFooterText_isNotAnOffer() {
+        // Texto do rodapé/quadros da nova etiqueta, caso a leitura por imagem o capture.
+        assertEquals(0, OfferParser.parseAll(Arrays.asList(
+                "AVALIAR", "R$/KM", "2,16", "R$/HORA", "46", "LUCRO", "67%", "R$ 11,65", "TRÂNSITO",
+                "23 km/h", "moderado", "✘ FORA DA ROTA · Santa Catarina, São Gonçalo",
+                "R$ 17,48 · 8,1 km em 23 min · busca 1,1 km em 5 min")).size());
+    }
+
+    // ---- Lucro por hora (meta do Leno: R$ 100 em 3 h) ----
+
+    @Test
+    public void dailyGoalMath() {
+        Settings s = new Settings();
+        s.dailyGoal = 100; s.dailyHours = 3; s.busyPct = 60;
+        assertEquals(33.33, s.neededProfitPerHourOverall(), 0.01);
+        assertEquals(55.56, s.neededProfitPerHourPerRide(), 0.01);
+    }
+
+    @Test
+    public void profitPerHourRule_andRanking_onRealShift() {
+        Settings s = new Settings();
+        s.fuelPrice = 6.50; s.kmPerLiter = 13; s.extraCostPerKm = 0.22;
+        s.profile = Profile.extraIncomeRoute();   // QUALQUER: lucro/h >= 45 ou trajeto
+        s.profile.minProfitPerHour = 38;
+        java.util.List<Offer> real = Arrays.asList(
+                new Offer(21.81, 2.4, 8, 11.2, 16), new Offer(8.77, 2.6, 9, 1.7, 6),
+                new Offer(25.98, 0.7, 4, 9.5, 24), new Offer(9.95, 2.4, 9, 1.6, 5));
+        java.util.List<Evaluation> r = Ranker.evaluateAndRank(real, s);
+        assertEquals(25.98, r.get(0).offer.fare, EPS);              // maior lucro/h do turno (R$ 40)
+        assertEquals(Evaluation.Verdict.GOOD, r.get(0).verdict);
+        assertEquals(Evaluation.Mark.GOOD, r.get(0).markProfitHour);
+        assertEquals(Evaluation.Verdict.BAD, r.get(r.size() - 1).verdict);   // R$ 8,77: R$ 23/h
+    }
+
+    // ---- Checagem de realidade da meta (dados do turno real de 31/10) ----
+
+    private static java.util.List<GoalCheck.Seen> realSeen() {
+        double[][] o = {{21.81, 13.6, 24}, {8.77, 4.3, 15}, {11.87, 7.1, 21}, {25.98, 10.2, 28},
+                {9.95, 4.0, 14}, {13.91, 3.7, 19}, {9.48, 4.1, 11}, {17.48, 8.1, 23}};
+        java.util.List<GoalCheck.Seen> l = new java.util.ArrayList<>();
+        for (double[] x : o) l.add(new GoalCheck.Seen(x[0], x[1], x[2]));
+        return l;
+    }
+
+    private static Settings lenoCar() {
+        Settings s = new Settings();
+        s.fuelPrice = 6.50; s.kmPerLiter = 13; s.extraCostPerKm = 0.22;
+        s.dailyGoal = 100; s.dailyHours = 3; s.busyPct = 60;
+        return s;
+    }
+
+    @Test
+    public void realityCheck_gross100_isTight() {
+        GoalCheck g = GoalCheck.run(lenoCar(), false, realSeen());
+        System.out.println("BRUTO:\n" + g.text());
+        assertEquals(55.56, g.neededPerRide, 0.01);
+        assertEquals(8, g.sample);
+        assertEquals(GoalCheck.Status.TIGHT, g.status);
+    }
+
+    @Test
+    public void realityCheck_net100_isUnlikely() {
+        GoalCheck g = GoalCheck.run(lenoCar(), true, realSeen());
+        System.out.println("LIQUIDO:\n" + g.text());
+        assertEquals(GoalCheck.Status.UNLIKELY, g.status);
+    }
+
+    @Test
+    public void realityCheck_noData() {
+        assertEquals(GoalCheck.Status.NO_DATA,
+                GoalCheck.run(lenoCar(), false, new java.util.ArrayList<GoalCheck.Seen>()).status);
+    }
+
+    @Test
+    public void csvReader_allVersions_dedupe_noGallery() {
+        String csv = "data_hora;app;valor;busca_km;busca_min;viagem_km;viagem_min;total_km;total_min;rs_km;rs_h;custo;lucro;lucro_pct;nota;veredito\n"
+                + "2026-10-31 15:00:01;com.ubercab.driver;10,00;1,00;3;4,00;10;5,00;13;2,00;46,15;3,60;6,40;64,0;2,50;AVALIAR\n"
+                + "2026-10-31 16:27:12;com.ubercab.driver [imagem];Renda extra;1;1;21,81;2,40;8;11,20;16;13,60;24;1,60;54,53;9,79;12,02;55,1;1,8;BAD;nao;Monjolos\n"
+                + "2026-10-31 16:27:13;com.ubercab.driver [imagem];Renda extra;1;1;21,81;2,40;8;11,20;16;13,60;24;1,60;54,53;9,79;12,02;55,1;1,8;BAD;nao;Monjolos\n"
+                + "2026-10-31 15:50:01;com.sec.android.gallery3d [imagem];Renda extra;1;1;17,48;1,10;5;7,00;18;8,10;23;2,16;45,60;5,83;11,65;66,6;2,4;OK;nao;Santa Catarina\n";
+        java.util.List<GoalCheck.Seen> l = GoalCheck.fromCsv(csv);
+        assertEquals(2, l.size());
+        assertEquals(21.81, l.get(1).fare, EPS);
+        assertEquals(13.6, l.get(1).km, EPS);
+        assertEquals(24, l.get(1).min, EPS);
+    }
+
+    // ---- Acumulado do dia (textos reais da tela inicial da Uber) ----
+
+    @Test
+    public void dayTracker_twoPeakSessions() {
+        DayTracker d = new DayTracker();
+        long t0 = 1_000_000L;
+        java.util.List<String> online = Arrays.asList("Página inicial", "R$ 0,00", "HOJE", "Você está online");
+        d.onScreen("2026-11-02", t0, online);
+        assertEquals(0.0, d.earnings, EPS);
+        // 1 h de manhã, com corridas: telas a cada 5 min e lacuna de 30 min no Waze (conta 20)
+        long t = t0;
+        for (int i = 0; i < 6; i++) { t += 5 * 60_000; d.onScreen("2026-11-02", t, Arrays.asList("Procurando viagens")); }
+        t += 30 * 60_000;
+        d.onScreen("2026-11-02", t, Arrays.asList("Página inicial", "R$ 48,50", "HOJE", "Você está online"));
+        assertEquals(48.50, d.earnings, EPS);
+        assertEquals(50, d.onlineMs / 60_000);
+        // vai offline
+        t += 60_000;
+        d.onScreen("2026-11-02", t, Arrays.asList("Você está offline"));
+        long morning = d.onlineMs;
+        // 10 h depois, offline o tempo todo: não conta
+        t += 10 * 3_600_000L;
+        d.onScreen("2026-11-02", t, Arrays.asList("Página inicial", "R$ 48,50", "HOJE", "Você está online"));
+        assertEquals(morning, d.onlineMs);
+        assertEquals(51.5, d.remaining(100), EPS);
+        System.out.println(d.summary(100));
+        assertEquals(true, d.extraMinutes(100) > 0);
+    }
+
+    @Test
+    public void dayTracker_resetsOnNewDay() {
+        DayTracker d = new DayTracker();
+        d.onScreen("2026-11-02", 1000, Arrays.asList("R$ 80,00", "HOJE", "Você está online"));
+        d.onScreen("2026-11-03", 2000, Arrays.asList("Você está online"));
+        assertEquals(-1.0, d.earnings, EPS);
+        assertEquals(0, d.onlineMs);
+    }
+
+    // ---- Tela "Histórico de ganhos" da Uber NÃO é oferta (falso positivo de 31/10, R$ 193/h) ----
+    @Test
+    public void earningsHistory_isNotAnOffer() {
+        java.util.List<String> ocr = Arrays.asList("21:21", "42", "Historico de ganhos",
+                "Prioridade9 min 9 segundos 2.02", "18:24", "km", "9 R$ 1,75 Preço dinâmico",
+                "R$ 180,00", "6:59", "Promoção", "R$ 56,19 ↑ Aumentou", "5:35",
+                "Uber X.·lh17 min 36.28 km", "Página inicial Descubra", "Ganhos", "Caixa de en...", "Menu");
+        assertEquals(false, OfferParser.hasOfferMarker(ocr));
+        assertEquals("Uber X.·1h17 min 36.28 km", OfferParser.normalizeOcr("Uber X.·lh17 min 36.28 km"));
+        assertEquals(true, OfferParser.hasOfferMarker(Arrays.asList("R$ 9,95", "Est. de R$2,49/km", "Tenho interesse")));
+    }
+
+    // ---- Importação do "Histórico de ganhos" (texto real da acessibilidade, 31/10) ----
+    private static java.util.List<String> historyScreen() {
+        return Arrays.asList("Histórico de ganhos", "Semana passada",
+                "R$ 12,30", "\u2066Uber X\u2069 · \u206618 min\u2069 · \u20665.10 km\u2069", "7:59",   // sem dia: ignorada
+                "qua., 28 de out.",
+                "R$ 42,76", "Aumentou", "\u2066Uber X\u2069 · \u206648 min 35 segundos\u2069 · \u206625.84 km\u2069", "6:28",
+                "R$ 6,60 Pedágio", "R. Dr. Alfredo Backer, São Gonçalo", "Centro, Rio de Janeiro",
+                "R$ 15,10", "\u2066Uber X\u2069 · \u2066Você cancelou\u2069", "18:40",
+                "ter., 20 de out.",
+                "R$ 180,00", "Promoção", "6:59",
+                "R$ 21,90", "\u2066Prioridade\u2069 · \u20661 h 5 min\u2069 · \u206630.2 km\u2069", "19:12",
+                "R$ 5,50 Preço dinâmico",
+                "R$ 9,99", "\u2066Uber X\u2069 · \u206612 min");                                       // cortada na borda
+    }
+
+    @Test
+    public void history_parsesRealUberScreen() {
+        java.util.List<String> screen = historyScreen();
+        assertEquals(true, HistoryParser.isHistoryScreen(screen));
+        java.util.List<HistoryParser.Trip> t = HistoryParser.parse(screen, 2026, 10);
+        assertEquals(4, t.size());
+        HistoryParser.Trip a = t.get(0);
+        assertEquals("2026-10-28", a.date);
+        assertEquals("6:28", a.time);
+        assertEquals("Uber X", a.kind);
+        assertEquals(42.76, a.fare, EPS);
+        assertEquals(48.58, a.minutes, EPS);
+        assertEquals(25.84, a.km, EPS);
+        assertEquals(6.60, a.toll, EPS);
+        assertEquals(36.16, a.earnings(), EPS);
+        assertEquals(true, t.get(1).cancelled);
+        assertEquals(true, t.get(2).promo);
+        assertEquals("2026-10-20", t.get(2).date);
+        assertEquals(65.0, t.get(3).minutes, EPS);
+        assertEquals(5.50, t.get(3).surge, EPS);
+        assertEquals(6, t.get(3).hour() / 3);
+    }
+
+    @Test
+    public void history_decemberSeenInJanuary_isLastYear() {
+        java.util.List<HistoryParser.Trip> t = HistoryParser.parse(Arrays.asList("Histórico de ganhos",
+                "qui., 31 de dez.", "R$ 20,00", "Uber X · 20 min · 10.0 km", "22:10"), 2027, 1);
+        assertEquals("2026-12-31", t.get(0).date);
+    }
+
+    @Test
+    public void history_csvRoundTrip() {
+        java.util.List<HistoryParser.Trip> t = HistoryParser.parse(historyScreen(), 2026, 10);
+        StringBuilder csv = new StringBuilder(HistoryParser.CSV_HEADER);
+        for (HistoryParser.Trip x : t) csv.append(HistoryParser.toCsv(x));
+        java.util.List<HistoryParser.Trip> back = HistoryParser.fromCsv(csv.toString());
+        assertEquals(t.size(), back.size());
+        assertEquals(t.get(0).key(), back.get(0).key());
+        assertEquals(6.60, back.get(0).toll, EPS);
+        assertEquals(true, back.get(2).promo);
+    }
+
+    @Test
+    public void realStats_excludePromoTollAndCancel() {
+        Settings s = lenoCar();
+        RealStats r = RealStats.of(HistoryParser.parse(historyScreen(), 2026, 10), s);
+        System.out.println("REAL:\n" + r.text(s));
+        assertEquals(2, r.trips);                 // 28/10 6:28 e 20/10 19:12
+        assertEquals(2, r.days);
+        assertEquals(180.0, r.promos, EPS);
+        assertEquals(36.16 + 21.90, r.earnings, EPS);
+        assertEquals(29.03, r.avgPerDay, EPS);
+        assertEquals(0, r.daysHitGoal);
+        assertEquals(1, r.amTrips);
+        assertEquals(1, r.pmTrips);
+    }
+
+    // ---- Corrida no trajeto: só o desvio até o passageiro custa ----
+    @Test
+    public void detourOnly_onRoute_chargesOnlyPickup() {
+        Settings s = lenoCar();
+        s.profile.includePickup = true;
+        s.profile.routeKeywords = Profile.parseKeywords("Centro");
+        Offer o = new Offer(30.00, 2.0, 5, 20.0, 35, "Av. Rio Branco, Centro, Rio de Janeiro");
+        Evaluation full = Calculator.evaluate(o, s);
+        s.profile.routeDetourCostOnly = true;
+        Evaluation det = Calculator.evaluate(o, s);
+        assertEquals(true, det.detourCostOnly);
+        assertEquals(full.cost * 2.0 / 22.0, det.cost, EPS);
+        assertEquals(true, det.profit > full.profit);
+        // Fora do trajeto, a opção não muda nada.
+        Evaluation off = Calculator.evaluate(new Offer(30.00, 2.0, 5, 20.0, 35, "Barra da Tijuca"), s);
+        assertEquals(false, off.detourCostOnly);
+        assertEquals(full.cost, off.cost, EPS);
     }
 }

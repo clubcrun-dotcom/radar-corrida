@@ -18,6 +18,8 @@ public final class Profile {
 
     public double minRsPerKm = 0;
     public double minRsPerHour = 0;
+    /** Lucro mínimo por hora (R$/h), já descontado o custo do carro. O que paga o seu tempo. */
+    public double minProfitPerHour = 0;
     /** Lucro mínimo em % do valor da corrida, após custo por km. */
     public double minProfitPct = 0;
     /** Bairros/cidades do seu trajeto. Destino contendo um deles conta como meta batida. */
@@ -29,6 +31,8 @@ public final class Profile {
 
     /** Se true, o deslocamento até o passageiro entra no km e no tempo. */
     public boolean includePickup = true;
+    /** Corrida no trajeto: considerar só o custo do desvio (km até o passageiro). */
+    public boolean routeDetourCostOnly = false;
 
     public Profile copy() {
         Profile p = new Profile();
@@ -36,11 +40,13 @@ public final class Profile {
         p.matchAll = matchAll;
         p.minRsPerKm = minRsPerKm;
         p.minRsPerHour = minRsPerHour;
+        p.minProfitPerHour = minProfitPerHour;
         p.minProfitPct = minProfitPct;
         p.routeKeywords = new ArrayList<>(routeKeywords);
         p.maxPickupKm = maxPickupKm;
         p.maxPickupMin = maxPickupMin;
         p.includePickup = includePickup;
+        p.routeDetourCostOnly = routeDetourCostOnly;
         return p;
     }
 
@@ -73,12 +79,12 @@ public final class Profile {
 
     // ---- Modelos de partida. São pontos de partida: calibre com o seu corridas.csv. ----
 
-    /** Renda extra: aceita se estiver no trajeto OU se o lucro for muito alto. Busca curta. */
+    /** Renda extra: aceita se pagar bem a hora OU se estiver no trajeto. Busca curta. */
     public static Profile extraIncomeRoute() {
         Profile p = new Profile();
         p.name = "Renda extra · trajeto";
         p.matchAll = false;
-        p.minProfitPct = 90;
+        p.minProfitPerHour = 45;
         p.maxPickupKm = 3;
         p.maxPickupMin = 8;
         return p;
