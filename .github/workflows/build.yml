@@ -65,6 +65,16 @@ jobs:
           name: radar-corrida-apk
           path: radar-corrida/site/radar-corrida.apk
 
+      # Pacote para a Google Play (.aab), assinado com a MESMA chave do APK.
+      # Baixe em Actions → execução → Artifacts → radar-corrida-play-aab.
+      - name: Gerar pacote da Play Store (.aab)
+        run: ./gradlew --no-daemon bundleRelease
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: radar-corrida-play-aab
+          path: radar-corrida/app/build/outputs/bundle/release/app-release.aab
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: radar-corrida/site
