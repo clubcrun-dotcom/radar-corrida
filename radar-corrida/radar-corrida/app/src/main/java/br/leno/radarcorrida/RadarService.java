@@ -201,7 +201,7 @@ public class RadarService extends AccessibilityService {
 
         // A árvore não mostrou oferta: tenta a leitura por imagem, se o app de corrida está ativo.
         if (ocrEnabled && ScreenOcr.supported() && !ocr.isBusy()
-                && now - lastTargetEventAt < TARGET_ACTIVE_MS) {
+                && now - lastTargetEventAt < TARGET_ACTIVE_MS && targetOnScreen()) {
             long interval = homeVisible ? OCR_INTERVAL_HOME_MS : OCR_INTERVAL_MS;
             if (now - lastOcrAt >= interval) {
                 lastOcrAt = now;
@@ -218,6 +218,12 @@ public class RadarService extends AccessibilityService {
 
     private void onOcrLines(String pkg, List<String> lines, long startedAt) {
         long now = SystemClock.elapsedRealtime();
+        // Privacidade: se o motorista saiu do app de corrida enquanto a imagem era lida
+        // (WhatsApp, tela de apps recentes...), descarta tudo, inclusive do diagnóstico.
+        if (!targetOnScreen()) {
+            handleNoOffer(now);
+            return;
+        }
         if (debug && !lines.isEmpty() && looksRelevant(lines)) log.dumpScreen(pkg + " [imagem]", lines);
 
         // Imagem capturada antes de o cartão sumir: não ressuscita a oferta antiga.
@@ -392,6 +398,25 @@ public class RadarService extends AccessibilityService {
         handler.removeCallbacks(hide);
         if (overlay != null) overlay.hide();
         lastSig = "";
+    }
+
+    /**
+     * O app de corrida tem uma janela visível agora? A leitura por imagem só roda nesse caso:
+     * nunca captura WhatsApp, galeria, banco ou a tela de apps recentes.
+     */
+    private boolean targetOnScreen() {
+        try {
+            List<AccessibilityWindowInfo> windows = getWindows();
+            for (AccessibilityWindowInfo w : windows) {
+                if (w.getType() != AccessibilityWindowInfo.TYPE_APPLICATION) continue;
+                AccessibilityNodeInfo root = w.getRoot();
+                CharSequence rp = root != null ? root.getPackageName() : null;
+                if (rp != null && targets.contains(rp.toString())) return true;
+            }
+        } catch (RuntimeException ignored) {
+            // lista de janelas mudando: na dúvida, não lê
+        }
+        return false;
     }
 
     /**
