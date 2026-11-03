@@ -34,6 +34,28 @@ public final class Profile {
     /** Corrida no trajeto: considerar só o custo do desvio (km até o passageiro). */
     public boolean routeDetourCostOnly = false;
 
+    /**
+     * Meta do dia deste perfil. Cada perfil tem a sua: "renda extra" pode ser R$100 bruto em 3 h,
+     * "vivendo do Uber" R$250 de lucro em 10 h. NaN = ainda não definida (usa a meta antiga, global).
+     */
+    public double dailyGoal = Double.NaN;
+    public double dailyHours = Double.NaN;
+    public double busyPct = Double.NaN;
+    public boolean netGoal = false;
+
+    public boolean hasGoal() {
+        return !Double.isNaN(dailyGoal);
+    }
+
+    /** Copia a meta do perfil para os ajustes de cálculo (se o perfil tiver meta própria). */
+    public void applyGoal(Settings s) {
+        if (!hasGoal()) return;
+        s.dailyGoal = dailyGoal;
+        if (!Double.isNaN(dailyHours)) s.dailyHours = dailyHours;
+        if (!Double.isNaN(busyPct)) s.busyPct = busyPct;
+        s.netGoal = netGoal;
+    }
+
     public Profile copy() {
         Profile p = new Profile();
         p.name = name;
@@ -47,18 +69,44 @@ public final class Profile {
         p.maxPickupMin = maxPickupMin;
         p.includePickup = includePickup;
         p.routeDetourCostOnly = routeDetourCostOnly;
+        p.dailyGoal = dailyGoal;
+        p.dailyHours = dailyHours;
+        p.busyPct = busyPct;
+        p.netGoal = netGoal;
         return p;
     }
 
     /** Devolve a palavra-chave do trajeto encontrada no destino, ou null. */
     public String routeMatch(String destination) {
         if (destination == null || destination.isEmpty() || routeKeywords.isEmpty()) return null;
-        String d = norm(destination);
+        List<String> dw = words(destination);
         for (String k : routeKeywords) {
-            String nk = norm(k);
-            if (!nk.isEmpty() && d.contains(nk)) return k.trim();
+            List<String> kw = words(k);
+            if (kw.isEmpty()) continue;
+            boolean all = true;
+            for (String w : kw) {
+                boolean found = false;
+                for (String d : dw) if (d.startsWith(w)) { found = true; break; }
+                if (!found) { all = false; break; }
+            }
+            if (all) return k.trim();
         }
         return null;
+    }
+
+    private static final java.util.Set<String> STOP = new java.util.HashSet<>(
+            java.util.Arrays.asList("de", "do", "da", "dos", "das", "e"));
+
+    /**
+     * Palavras sem acento e sem "de/do/da". "Centro do Rio de Janeiro" exige centro + rio + janeiro
+     * no destino: casa com "Centro, Rio de Janeiro", mas não com "Centro, São Gonçalo".
+     */
+    static List<String> words(String s) {
+        List<String> out = new ArrayList<>();
+        for (String w : norm(s).split("[^a-z0-9]+")) {
+            if (!w.isEmpty() && !STOP.contains(w)) out.add(w);
+        }
+        return out;
     }
 
     /** Minúsculas e sem acento: "Colubandê" casa com "colubande". */
@@ -70,6 +118,8 @@ public final class Profile {
     public static List<String> parseKeywords(String raw) {
         List<String> out = new ArrayList<>();
         if (raw == null) return out;
+        // Um por linha (ou ";"). Vírgula também separa, exceto quando a linha toda forma
+        // um lugar só: aí use espaço ("Centro Rio de Janeiro").
         for (String s : raw.split("[\\n,;]+")) {
             String t = s.trim();
             if (!t.isEmpty()) out.add(t);
@@ -87,10 +137,38 @@ public final class Profile {
         p.minProfitPerHour = 45;
         p.maxPickupKm = 3;
         p.maxPickupMin = 8;
+        p.dailyGoal = 100;
+        p.dailyHours = 3;
+        p.busyPct = 60;
+        p.netGoal = false;
         return p;
     }
 
-    /** Tempo integral: precisa remunerar o km e a hora ao mesmo tempo. */
+    public static final String LIVING_NAME = "Vivendo do Uber";
+
+    /**
+     * Vivendo do Uber: o carro é a ferramenta de trabalho e o custo dele sai do seu bolso.
+     * Meta em LUCRO (R$250/dia em 10 h, ~R$6.500/mês em 26 dias). Precisa pagar a hora
+     * E o km ao mesmo tempo: corrida longa que paga bem a hora mas mal o km gasta o carro.
+     * Lucro/h mínimo = 250 / 10 h / 65% do tempo com passageiro ≈ R$39/h.
+     */
+    public static Profile livingFromUber() {
+        Profile p = new Profile();
+        p.name = LIVING_NAME;
+        p.matchAll = true;
+        p.minRsPerKm = 1.50;
+        p.minProfitPerHour = 39;
+        p.maxPickupKm = 4;
+        p.maxPickupMin = 10;
+        p.includePickup = true;
+        p.dailyGoal = 250;
+        p.dailyHours = 10;
+        p.busyPct = 65;
+        p.netGoal = true;
+        return p;
+    }
+
+    /** Modelo antigo (sem meta própria). Mantido para os cálculos padrão e testes. */
     public static Profile fullTime() {
         Profile p = new Profile();
         p.name = "Tempo integral";
@@ -101,10 +179,17 @@ public final class Profile {
         return p;
     }
 
+    /** O perfil é o modelo antigo "Tempo integral", sem nenhum ajuste do usuário. */
+    public boolean isUntouchedOldFullTime() {
+        return "Tempo integral".equals(name) && matchAll && minRsPerKm == 1.50 && minRsPerHour == 40
+                && minProfitPerHour == 0 && minProfitPct == 0 && routeKeywords.isEmpty()
+                && maxPickupKm == 5 && maxPickupMin == 0;
+    }
+
     public static List<Profile> presets() {
         List<Profile> l = new ArrayList<>();
         l.add(extraIncomeRoute());
-        l.add(fullTime());
+        l.add(livingFromUber());
         return l;
     }
 }

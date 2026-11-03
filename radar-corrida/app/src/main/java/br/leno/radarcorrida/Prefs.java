@@ -39,6 +39,7 @@ public final class Prefs {
     public static final String K_HIST_LAST = "hist_last_import";
     public static final String K_CONSENT = "consent_v2";
     public static final String K_OCR = "ocr_enabled";
+    public static final String K_PRESET_LIVING = "preset_living_v1";
 
     public static final String DEF_FUEL = "6,45";
     public static final String DEF_KMPL = "14";
@@ -67,6 +68,7 @@ public final class Prefs {
         s.netGoal = p.getBoolean(K_NET, false);
         List<Profile> profiles = profiles(c);
         s.profile = profiles.get(activeIndex(c, profiles.size()));
+        s.profile.applyGoal(s);
         return s;
     }
 
@@ -84,7 +86,32 @@ public final class Prefs {
             }
         }
         if (out.isEmpty()) out.addAll(Profile.presets());
+        migrate(c, out);
         return out;
+    }
+
+    /**
+     * 1) Perfis sem meta própria herdam a meta global antiga (nada muda para quem já usava).
+     * 2) Uma única vez: cria o perfil "Vivendo do Uber" (troca o "Tempo integral" se ele nunca foi mexido).
+     */
+    static void migrate(Context c, List<Profile> out) {
+        SharedPreferences p = sp(c);
+        for (Profile pr : out) {
+            if (pr.hasGoal()) continue;
+            pr.dailyGoal = num(p.getString(K_GOAL, "100"), 100);
+            pr.dailyHours = num(p.getString(K_HOURS, "3"), 3);
+            pr.busyPct = num(p.getString(K_BUSY, "60"), 60);
+            pr.netGoal = p.getBoolean(K_NET, false);
+        }
+        if (p.getBoolean(K_PRESET_LIVING, false)) return;
+        boolean exists = false;
+        for (int i = 0; i < out.size(); i++) {
+            if (out.get(i).isUntouchedOldFullTime()) out.set(i, Profile.livingFromUber());
+            if (Profile.LIVING_NAME.equals(out.get(i).name)) exists = true;
+        }
+        if (!exists) out.add(Profile.livingFromUber());
+        saveProfiles(c, out, activeIndex(c, out.size()));
+        p.edit().putBoolean(K_PRESET_LIVING, true).apply();
     }
 
     public static int activeIndex(Context c, int size) {
@@ -116,6 +143,12 @@ public final class Prefs {
         o.put("maxPickupMin", p.maxPickupMin);
         o.put("includePickup", p.includePickup);
         o.put("routeDetourCostOnly", p.routeDetourCostOnly);
+        if (p.hasGoal()) {
+            o.put("dailyGoal", p.dailyGoal);
+            if (!Double.isNaN(p.dailyHours)) o.put("dailyHours", p.dailyHours);
+            if (!Double.isNaN(p.busyPct)) o.put("busyPct", p.busyPct);
+            o.put("netGoal", p.netGoal);
+        }
         JSONArray k = new JSONArray();
         for (String s : p.routeKeywords) k.put(s);
         o.put("routeKeywords", k);
@@ -134,6 +167,12 @@ public final class Prefs {
         p.maxPickupMin = o.optDouble("maxPickupMin", 0);
         p.includePickup = o.optBoolean("includePickup", true);
         p.routeDetourCostOnly = o.optBoolean("routeDetourCostOnly", false);
+        if (o.has("dailyGoal")) {
+            p.dailyGoal = o.optDouble("dailyGoal", Double.NaN);
+            p.dailyHours = o.optDouble("dailyHours", Double.NaN);
+            p.busyPct = o.optDouble("busyPct", Double.NaN);
+            p.netGoal = o.optBoolean("netGoal", false);
+        }
         JSONArray k = o.optJSONArray("routeKeywords");
         if (k != null) {
             for (int i = 0; i < k.length(); i++) {

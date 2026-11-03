@@ -119,7 +119,7 @@ public final class OfferParser {
         }
 
         double pKm = pickup != null ? pickup.km : 0;
-        double pMin = pickup != null ? pickup.min : 0;
+        double pMin = pickup != null ? fixIconDigit(pickup.km, pickup.min) : 0;
         double tKm = trip.km;
 
         // Conferência com o "Est. de R$ X/km" da própria Uber (que já soma a busca).
@@ -158,11 +158,22 @@ public final class OfferParser {
             }
         }
 
+        // Linha da busca ilegível (ex.: "4 min • .0 km"): a diferença para o total da Uber é a busca.
+        if (anchor != null && pickup == null && pKm == 0) {
+            double rest = fare / anchor - tKm;
+            if (rest >= 0.3 && rest / (fare / anchor) <= 0.6) {
+                pKm = rest;
+                estimated = true;
+                double speed = trip.min > 0 ? tKm / trip.min : 0;
+                if (speed > 0) pMin = Math.round(pKm / speed);
+            }
+        }
+
         // Se mesmo após a correção a leitura não bate com a estimativa da Uber, é melhor
         // não mostrar nada do que mostrar um número errado.
         if (anchor != null && Math.abs(tKm + pKm - fare / anchor) / (fare / anchor) > 0.25) return null;
 
-        Offer o = new Offer(fare, round1(pKm), pMin, round1(tKm), trip.min,
+        Offer o = new Offer(fare, round1(pKm), pMin, round1(tKm), fixIconDigit(tKm, trip.min),
                 destinationAfter(texts, trip.line, legs));
         o.pickupEstimated = estimated || (pickup == null && pKm > 0);
 
@@ -171,6 +182,9 @@ public final class OfferParser {
         if (km <= 0 || o.tripMin <= 0) return null;
         double rsKm = o.fare / km;
         if (rsKm < 0.2 || rsKm > 30) return null;
+        // Velocidade impossível = leitura errada (ex.: "2.2 km" lido como "22 km" em 7 min).
+        if (o.tripKm / (o.tripMin / 60.0) > 110) return null;
+        if (o.pickupMin > 0 && o.pickupKm / (o.pickupMin / 60.0) > 110) return null;
         return o;
     }
 
@@ -202,7 +216,7 @@ public final class OfferParser {
 
     // ---- Correção de leitura por imagem (OCR) ----
 
-    private static final Pattern OCR_KM_TYPO = Pattern.compile("(?<=\\d\\s?|\\d)k[mnr]{1,3}\\b");
+    private static final Pattern OCR_KM_TYPO = Pattern.compile("(?<=[\\dlIO|]\\s?|[\\dlIO|])k[mnr]{1,3}\\b");
     private static final Pattern OCR_MONEY_L1 = Pattern.compile("((?-i:R\\s?[$S])\\s*)[lIL|](?=[.,]\\d)");
     private static final Pattern OCR_MONEY_TAIL = Pattern.compile("((?-i:R\\s?[$S])\\s*\\d+[.,]\\d)[lI|]");
     private static final Pattern OCR_HOUR_L1 = Pattern.compile("(?<![A-Za-zÀ-ÿ])[lI|](?=\\s*h\\s*\\d)");
@@ -252,7 +266,46 @@ public final class OfferParser {
     static List<String> normalizeAll(List<String> texts) {
         List<String> out = new ArrayList<>(texts.size());
         for (String t : texts) out.add(normalizeOcr(t));
+        return joinSplitLegs(out);
+    }
+
+    private static final Pattern TIME_ONLY = Pattern.compile(
+            "^.{0,3}?\\d{1,3}\\s*(min|minutos?)\\s*[·•.\\-]?\\s*$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern DIST_ONLY = Pattern.compile(
+            "^\\s*[·•.\\-]?\\s*\\d+(?:[.,]\\d+)?\\s*(km|m)\\s*$", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * A leitura por imagem às vezes quebra "55 minutos • 32.7 km" em duas linhas
+     * ("55 minutos" / "32.7 km"). Junta de volta, senão a viagem some e a busca vira viagem.
+     */
+    static List<String> joinSplitLegs(List<String> in) {
+        List<String> out = new ArrayList<>(in.size());
+        for (int i = 0; i < in.size(); i++) {
+            String t = in.get(i);
+            if (t != null && i + 1 < in.size() && in.get(i + 1) != null
+                    && TIME_ONLY.matcher(t).matches() && DIST_ONLY.matcher(in.get(i + 1)).matches()) {
+                out.add(t.trim() + " • " + in.get(i + 1).trim());
+                i++;
+                continue;
+            }
+            out.add(t);
+        }
         return out;
+    }
+
+    /**
+     * Ícone antes do tempo lido como dígito: "84 min 1.9 km" é "4 min". Busca ou viagem a menos
+     * de 4 km/h não existe; se tirar o primeiro dígito der uma velocidade normal, era o ícone.
+     */
+    static double fixIconDigit(double km, double min) {
+        if (km < 0.5 || min < 10) return min;
+        if (km / (min / 60.0) >= 4) return min;
+        String s = String.valueOf((long) min);
+        if (s.length() < 2) return min;
+        double alt = Double.parseDouble(s.substring(1));
+        if (alt <= 0) return min;
+        double v = km / (alt / 60.0);
+        return (v >= 6 && v <= 90) ? alt : min;
     }
 
     private static final String[] OFFER_MARKERS = {
@@ -399,12 +452,27 @@ public final class OfferParser {
                 Offer o = parse(texts.subList(from, to));
                 if (o != null && seen.add(o.signature())) out.add(o);
             }
+            out = oneOfferPerFare(out);
             if (!out.isEmpty()) return out;
         }
 
         Offer single = parse(texts);
         if (single != null) out.add(single);
         return out;
+    }
+
+    /**
+     * O mesmo valor duas vezes no quadro é a mesma oferta (ex.: miniatura do print do Android
+     * por cima do cartão). Fica a leitura com busca lida na tela; senão, a primeira.
+     */
+    private static List<Offer> oneOfferPerFare(List<Offer> in) {
+        java.util.LinkedHashMap<Long, Offer> best = new java.util.LinkedHashMap<>();
+        for (Offer o : in) {
+            long k = Math.round(o.fare * 100);
+            Offer cur = best.get(k);
+            if (cur == null || (cur.pickupEstimated && !o.pickupEstimated)) best.put(k, o);
+        }
+        return new ArrayList<>(best.values());
     }
 
     private static int firstLegLine(List<String> texts) {

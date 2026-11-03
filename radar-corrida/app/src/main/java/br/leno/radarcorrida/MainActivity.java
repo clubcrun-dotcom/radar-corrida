@@ -196,15 +196,19 @@ public class MainActivity extends Activity {
         gk.addView(goalGross);
         gk.addView(goalNet);
         col.addView(gk);
-        boolean net = sp.getBoolean(Prefs.K_NET, false);
+        Profile gp = profiles.get(shown);
+        boolean net = gp.hasGoal() ? gp.netGoal : sp.getBoolean(Prefs.K_NET, false);
         goalNet.setChecked(net);
         goalGross.setChecked(!net);
-        goal = field("Meta por dia (R$)", null, sp.getString(Prefs.K_GOAL, "100"));
-        hours = field("Horas disponíveis por dia", null, sp.getString(Prefs.K_HOURS, "3"));
+        goal = field("Meta por dia (R$) · deste perfil",
+                "Cada perfil tem a sua meta. Trocou o perfil lá embaixo, a meta troca junto.",
+                gp.hasGoal() ? Prefs.edit(gp.dailyGoal) : sp.getString(Prefs.K_GOAL, "100"));
+        hours = field("Horas disponíveis por dia", null,
+                gp.hasGoal() && !Double.isNaN(gp.dailyHours) ? Prefs.edit(gp.dailyHours) : sp.getString(Prefs.K_HOURS, "3"));
         busy = field("Tempo com passageiro (%)",
                 "Parte do tempo online que você está em corrida (indo buscar + levando). "
                         + "O resto é espera e volta, sem ganho. 60% é um bom ponto de partida.",
-                sp.getString(Prefs.K_BUSY, "60"));
+                gp.hasGoal() && !Double.isNaN(gp.busyPct) ? Prefs.edit(gp.busyPct) : sp.getString(Prefs.K_BUSY, "60"));
         goalInfo = new TextView(this);
         goalInfo.setTextSize(14);
         goalInfo.setLineSpacing(0, 1.15f);
@@ -265,7 +269,8 @@ public class MainActivity extends Activity {
         pMinProfit = field("Lucro mínimo (%)",
                 "(Valor − custo por km × km) ÷ valor. Mostra quanto sobra de cada real.", "");
         pRoute = field("Bairros/cidades do seu trajeto",
-                "Um por linha ou separados por vírgula. Se o destino tiver um deles, conta como meta batida.", "");
+                "Um por linha. Se o destino tiver todas as palavras da linha, conta como meta batida. "
+                        + "Ex.: \"Centro Rio de Janeiro\" não confunde com o Centro de São Gonçalo.", "");
         pRoute.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         pRoute.setMinLines(2);
 
@@ -415,6 +420,13 @@ public class MainActivity extends Activity {
         pMaxPickMin.setText(Prefs.edit(p.maxPickupMin));
         pIncludePickup.setChecked(p.includePickup);
         pDetour.setChecked(p.routeDetourCostOnly);
+        if (goal != null && p.hasGoal()) {
+            goal.setText(Prefs.edit(p.dailyGoal));
+            if (!Double.isNaN(p.dailyHours)) hours.setText(Prefs.edit(p.dailyHours));
+            if (!Double.isNaN(p.busyPct)) busy.setText(Prefs.edit(p.busyPct));
+            goalNet.setChecked(p.netGoal);
+            goalGross.setChecked(!p.netGoal);
+        }
     }
 
     private void collectProfile(Profile p) {
@@ -430,6 +442,12 @@ public class MainActivity extends Activity {
         p.maxPickupMin = Prefs.num(pMaxPickMin.getText().toString(), 0);
         p.includePickup = pIncludePickup.isChecked();
         p.routeDetourCostOnly = pDetour.isChecked();
+        if (goal != null) {
+            p.dailyGoal = Prefs.num(goal.getText().toString(), Double.isNaN(p.dailyGoal) ? 100 : p.dailyGoal);
+            p.dailyHours = Prefs.num(hours.getText().toString(), Double.isNaN(p.dailyHours) ? 3 : p.dailyHours);
+            p.busyPct = Prefs.num(busy.getText().toString(), Double.isNaN(p.busyPct) ? 60 : p.busyPct);
+            p.netGoal = goalNet.isChecked();
+        }
     }
 
     private void newProfile() {

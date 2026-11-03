@@ -190,6 +190,25 @@ final class OverlayCard {
         list.removeAllViews();
         list.setVisibility(View.GONE);
         attach(yDp);
+        pulseIfGood(e);
+    }
+
+    private android.animation.ObjectAnimator pulse;
+
+    /** Corrida boa: o cartão pisca 3 vezes para chamar o olho, sem precisar ler. */
+    private void pulseIfGood(Evaluation e) {
+        stopPulse();
+        if (e.verdict != Evaluation.Verdict.GOOD) return;
+        pulse = android.animation.ObjectAnimator.ofFloat(root, "alpha", 1f, 0.35f, 1f);
+        pulse.setDuration(380);
+        pulse.setRepeatCount(2);
+        pulse.start();
+    }
+
+    private void stopPulse() {
+        if (pulse != null) pulse.cancel();
+        pulse = null;
+        root.setAlpha(1f);
     }
 
     /**
@@ -214,6 +233,7 @@ final class OverlayCard {
         }
         list.setVisibility(View.VISIBLE);
         attach(yDp);
+        pulseIfGood(best);
     }
 
     private void fill(Evaluation e, String title) {
@@ -317,7 +337,10 @@ final class OverlayCard {
             String t = p.trim();
             if (!t.isEmpty() && !t.matches("\\d+.*")) keep.add(t);
         }
-        if (keep.size() >= 2) return keep.get(keep.size() - 2) + ", " + keep.get(keep.size() - 1);
+        if (keep.size() >= 2) {
+            String a = keep.get(keep.size() - 2), b = keep.get(keep.size() - 1);
+            return a.equalsIgnoreCase(b) ? b : a + ", " + b;   // "Itaboraí, Itaboraí" → "Itaboraí"
+        }
         return d;
     }
 
@@ -381,6 +404,7 @@ final class OverlayCard {
 
     void hide() {
         if (!attached) return;
+        stopPulse();
         try {
             wm.removeView(root);
         } catch (RuntimeException ignored) {

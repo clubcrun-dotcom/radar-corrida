@@ -14,12 +14,12 @@ val hasReleaseKey = keystorePath != null && file(keystorePath).exists()
 
 android {
     namespace = "br.leno.radarcorrida"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "br.leno.radarcorrida"
         minSdk = 22          // Android 5.1+: roda em celulares e tablets antigos
-        targetSdk = 35
+        targetSdk = 36   // Play exige API 36 para app novo desde 31/08/2026
         versionCode = buildNumber
         versionName = "0.9.$buildNumber"
     }

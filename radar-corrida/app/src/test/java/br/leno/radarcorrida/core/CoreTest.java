@@ -795,4 +795,127 @@ public class CoreTest {
         Offer real = new Offer(19.78, 5.2, 16, 1.9, 6, "Mutuá, São Gonçalo");
         assertEquals(Evaluation.Verdict.BAD, Calculator.evaluate(real, s).verdict);
     }
+
+    // ---- 17 ofertas reais de SG, 31/10 23:44–00:00: total tem de bater com o "Est. de R$/km" ----
+    private static void sg(String name, double est, double expP, double expT, String... l) {
+        java.util.List<Offer> r = OfferParser.parseAll(Arrays.asList(l));
+        assertEquals(name + " ofertas", 1.0, r.size(), 0.01);
+        Offer o = r.get(0);
+        assertEquals(name + " busca", expP, o.pickupKm, 0.15);
+        assertEquals(name + " viagem", expT, o.tripKm, 0.15);
+        assertEquals(name + " total", o.fare / est, o.pickupKm + o.tripKm, 0.2);
+    }
+
+    @Test
+    public void ocr_realOffersSaoGoncalo_matchUberEstimate() {
+        sg("17,94",2.30,1.0,6.8,"2 UberX","Exclusivo","X","R$ 1794","Est. de R$2,30/km",") +R$ 3,00 incluído","5 min l0 km","Rua Sampaio Vidal, Colubandê, São","08","Gonçalo","★ 4,91 (431)","12 minutos 6.8 km","Tribobó, São Gonçalo","Aceitar");
+        sg("11,95",2.78,1.8,2.5,"2 UberX","X","R$ 11,95","Est. de R$2,78/km","9 +R$ 4,75 incluído","8 6mnin •1.8 km","Rua Geraldo Silva, Colubandê, São","Gonçalo","* 4,94 (111)","O7minutos• 2.5 km","Rua Gaspar de Freitas, 53, Mutondo","São Gonçalo","Tenho interesse");
+        sg("15,76",3.43,1.8,2.8,"2","UberX","Exclusivo","X","R$ 15,76","Est. de R$3,43/km",") +R$ 4,25 incluído","8 6min 1.8 km","R. Expedicionário Alberto Cândido","Melo, Colubandê, são Gonçalo","4,89 (466)","Verificado","9 minutos• 2.8 km","Rua Marinelson de Abreu, 82,","Colubandê, São Gonçalo","Aceitar");
+        sg("14,67",4.45,1.0,2.3,"Priority","Exclusivo","X","R$ 14,67","Est. de R$4,45/km","m","9 +R$ 4,25 incluído","+R$ 1l,90 incluída para retirada","5 min 1.0 km","Rua Carlos Gianerini, Colubande,","São Gonçalo","* 4,89 (241)","8 minutos • 2.3 km","Rod. Amaral Peixoto, São Gonçalo","Aceitar","Es");
+        sg("12,61",3.00,2.1,2.1,"2 UberX","X","R$ 12,6l","Are","Est. de R$3/km","9 +R$ 4,75 incluído","7 min2.1 km","Al. Niterói, São Gonçalo","4,89 (445)","Verificado","6 minutos 2.1 km","Fnj","Rua Honório Ferreira, 235,","N","Colubandê, São Gonçalo","Tenho interesse");
+        sg("13,32",2.02,3.8,2.8,"2 UberX","X","R$ 13,32","Est. de R$2,02/km","e 7 min 3.8 km","Lote 07 Esquina Com Av. Dr.","Eugenio Borges R. Dalva Raposo,","Sete Pontes, São Gonçalo","4,92 (254)","Verificado","6 minutos 2.8 km","Rua Expedicionário José de Almeida","Filho, 16, Arsenal, São Gonçalo","Tenho interesse");
+        sg("41,67",2.05,1.0,19.3,"2 UberX","X","R$ 41,67","Est. de R$2,05/km","e 4 min • .0 knm","Colubandė, São Gonçalo","★ 4,76 (305)","2 paradas","42 minutos 19.3 km","R. Dalva Raposo, 401, Maria Paula,","São Gonçalo","Tenho interesse");
+        sg("19,38",2.08,4.7,4.6,"2 UberX","X","R$ 19,38","Est. de R$2,08/km","9 +R$ 2,25 incluído","e 1l min • 4.7 km","R. Candido Gurgel, São Miguel, São","Gonçalo","4,88 (634)","Verificado","9 minutos •4.6 km","Rua Isolina Alves, 40, São Gonçalo,","São Gonçalo","Tenho interesse");
+        sg("14,49",2.46,1.9,4.0,"2 UberX","X","R$ 14,49","Est. de R$2,46/km","5 min l.9 km","Av. Maricá, Mutondo, Rio de Janeiro","* 4,99 (86)","Verificado","10 minutos • 4.0 km","Rua Vitória, 642, Trindade, São","Gonçalo","Tenho interesse");
+        sg("14,13",3.29,0.7,3.6,"2 Priority","X","R$ 14,13","|ho","do","Est. de R$3,29/km","io","O +R$1,90 incluída para retirada","e 3 min •0.7 km","Colubandê, Rio de Janeiro","* 4.86 (203)","l parada","lan","þol","13 minutos• 3.6 km","Rua Jair Marinho, 118, Alcântara,","São Gonçalo","dl","Tenho interesse");
+        sg("27,01",2.31,2.2,9.5,"2 UberX","X","R$ 27,01l","Est. de R$2,31/km",") +R$ 2,25 incluído","8 7 min 2.2 km","Rua Turíbio Silva, Almerinda, São","Gonçalo","t 4,81 (563)","Verificado","O 17 minutos• 9.5 kn","Av. Flavio Monteiro Barros, Rio de","Janeiro","Tenho interesse");
+        sg("14,66",2.26,5.7,0.8,"2 UberX","X","R$ 14,66","Est. de R$2,26/km","9 +R$ 2,25 incluído","ad","14 min 5.7 kmn","Rua Verão, Mutuá, São Gonçalo","4,83 (47)","4 minutos•0.8 km","Rua Eduardo Rodrigues Ferreira,","450, São Miguel, São Gonçalo","Tenho interesse");
+        sg("20,44",2.15,2.1,7.4,"2 UberX","X","R$ 20,44","Est. de R$2,15/km","8 6mnin • 2.1 km","R. Pedro Américo, Colubandê, São","Gonçalo","★ 4,92 (150)","O 14 minutos• 74 km","Travessa Manuel Coelho, 222, Pita,","São Gonçalo","Cid","Tenho interesse");
+        sg("18,66",1.42,3.1,10.0,"2 UberX","d","X","nt","R$ 18,66","Est. de R$1,42/km","e 6 min 3.l kmn","Tribobó 1, Rio de Janeiro","* 4,90 (3132)","Verificado","O 14 minutos• 10.0 km","Rua Doutor Câmara Coutinho, 157,","Neves ll, São Gonçalo","Tenho interesse");
+        sg("14,37",2.11,3.0,3.8,"2","UberX","X","R$ 14,37","Est. de R$2,11/km","9 +R$ 1,25 incluído","e 8 min 3.0 km","R. Dr. Alfredo Backer, Mutondo, São","Gonçalo","4,94 (2012)","Verificado","8 minutos•3.8 km","Rua General Canrobert, 419,","Mutuaguaçu, São Gonçalo","Tenho interesse");
+        sg("21,00",1.76,3.8,8.1,"2 Priority","X","R$ 21","Est. de R$1,76/km","+R$ 2,1l incluída para retirada","8 7min •3.8 km","R. Expedicionário Antônio Vicente","de Paula, Colubandė, São Gonçalo","* 4,92 (725) O Verificado","15 minutos8.1 km","R. Manoel Luiz de Souza, Santa","Catarina, São Gonçalo","Tenho interesse");
+        sg("25,15",2.37,4.0,6.6,"2 UberX","X","R$ 25,15","Est. de R$2,37/km",") +R$ 2,75 incluído","e 7min • 4.0 km","Rua Exp. Antônio Vicente de Paula,","Colubandê, São Gonçalo","* 5,00 (38) Verificado","14 minutos •6.6 km","Rua Aideia Barreto do Couto, 29,","Engenho Pequeno, São Gonçalo","Tenho interesse");
+    }
+
+    // ---- Print do Android: a miniatura por cima do cartão gerava "MELHOR R$ 228/h · 189 km/h" (01/11 10:19) ----
+    @Test
+    public void ocr_screenshotThumbnail_doesNotCreateFakeOffer() {
+        java.util.List<Offer> r = OfferParser.parseAll(Arrays.asList(
+                "UberX", "X", "R$ 26,63", "Est. de R$2,11/km", "e 7 min • 2.2 km",
+                "Rua Turíbio Silva, Almerinda, São", "Gonçalo", "4,81 (563)", "Verificado",
+                "AVAL IAR", "11", "66%", "22", "minutos • 10.4 km", "uberx", "R$ 26,63",
+                "roelandia, 154, Fazenda dos", "Cst. de R$21/km", "7min 22 km", "Gon", "rinca, São",
+                "eiros, São Gonçalo", "4,31 (963) verificado", "28 minutok- 106", "104 km",
+                "Mineiros, Söp Goncako", "Tenho interesse"));
+        assertEquals(true, r.size() <= 1);
+        for (Offer o : r) assertEquals(true, o.tripKm / (o.tripMin / 60.0) <= 110);
+    }
+
+    @Test
+    public void livingProfile_goalIsPerProfile_andMatchesNeededProfitPerHour() {
+        Profile living = Profile.livingFromUber();
+        Settings s = new Settings();
+        s.dailyGoal = 100; s.dailyHours = 3; s.netGoal = false; // meta antiga (renda extra)
+        s.profile = living;
+        living.applyGoal(s);
+        assertEquals(250, s.dailyGoal, EPS);
+        assertEquals(10, s.dailyHours, EPS);
+        assertEquals(true, s.netGoal);
+        // 250 / 10 h / 65% ≈ 38,5 → o mínimo do perfil (39) fecha a meta
+        assertEquals(true, living.minProfitPerHour >= s.neededProfitPerHourPerRide());
+        assertEquals(true, living.minProfitPerHour - s.neededProfitPerHourPerRide() < 1);
+
+        Profile extra = Profile.extraIncomeRoute();
+        extra.applyGoal(s);
+        assertEquals(100, s.dailyGoal, EPS);
+        assertEquals(false, s.netGoal);
+
+        Profile old = Profile.fullTime(); // sem meta própria: não mexe na meta
+        s.dailyGoal = 123;
+        old.applyGoal(s);
+        assertEquals(123, s.dailyGoal, EPS);
+        assertEquals(true, old.isUntouchedOldFullTime());
+        assertEquals(false, living.isUntouchedOldFullTime());
+    }
+
+    @Test
+    public void livingProfile_needsHourAndKmTogether() {
+        Settings s = new Settings();
+        s.profile = Profile.livingFromUber();
+        s.profile.applyGoal(s);
+        // curta boa da noite: 17,97 · busca 2 km/5 min · 6,7 km/14 min
+        assertEquals(Evaluation.Verdict.GOOD,
+                Calculator.evaluate(new Offer(17.97, 2, 5, 6.67, 14), s).verdict);
+        // R$12 com busca de 3 km: ~1,50/km mas ~R$23/h de lucro → recusa
+        assertEquals(Evaluation.Verdict.BAD,
+                Calculator.evaluate(new Offer(12.00, 3, 8, 5, 15), s).verdict);
+        // longa rápida que paga a hora mas não o km (R$1,20/km): recusa
+        assertEquals(Evaluation.Verdict.BAD,
+                Calculator.evaluate(new Offer(36.00, 1, 3, 29, 30), s).verdict);
+    }
+
+    @Test
+    public void ocr_iconDigitBeforePickupMinutes_isDropped() {
+        // ícone do pino lido como "8": "84 min 1.9 km" é 4 min
+        Offer o = OfferParser.parse(java.util.Arrays.asList(
+                "Priority", "R$ 17,42", "Est. de R$2,42/km", "84 min 1.9 km",
+                "Rua A, Bairro B, Cidade", "12 minutos•5.3 km", "Rua C, 10, Cidade", "Tenho interesse"));
+        assertEquals(4, o.pickupMin, EPS);
+        assertEquals(12, o.tripMin, EPS);
+        assertEquals(17.42, o.fare, EPS);
+    }
+
+    @Test
+    public void ocr_tripSplitInTwoLines_isJoined() {
+        Offer o = OfferParser.parse(java.util.Arrays.asList(
+                "UberX Exclusivo", "R$ 58,88", "Est. de R$1,70/km", "4 min •2.0 km",
+                "Travessa A, Bairro, Cidade", "55 minutos", "32.7 km",
+                "Av. B, 100, Bairro, Rio de Janeiro", "Aceitar"));
+        assertEquals(2.0, o.pickupKm, EPS);
+        assertEquals(4, o.pickupMin, EPS);
+        assertEquals(32.7, o.tripKm, EPS);
+        assertEquals(55, o.tripMin, EPS);
+        assertEquals(false, o.pickupEstimated);
+    }
+
+    @Test
+    public void route_allWordsOfTheLineMustMatch() {
+        Profile p = new Profile();
+        p.routeKeywords = Profile.parseKeywords("Centro do Rio de Janeiro\nSanto Cristo");
+        assertEquals(true, p.routeMatch("R. Coronel X, 138, Centro, São Gonçalo") == null);
+        assertEquals("Centro do Rio de Janeiro", p.routeMatch("Av. Y, 10, Centro, Rio de Janeiro"));
+        assertEquals("Santo Cristo", p.routeMatch("Rua Z, 5, Santo Cristo, Rio de Janeiro"));
+        p.routeKeywords = Profile.parseKeywords("Niteroi");
+        assertEquals("Niteroi", p.routeMatch("Rua W, Icaraí, Niterói")); // sem acento casa
+    }
 }
