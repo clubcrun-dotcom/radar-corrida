@@ -19,6 +19,7 @@ import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -47,7 +48,9 @@ public class MainActivity extends Activity {
     private EditText pName, pMinKm, pMinH, pMinProfit, pRoute, pMaxPickKm, pMaxPickMin;
     private RadioButton ruleAll, ruleAny;
     private CheckBox pIncludePickup;
-    private EditText overlayY, packages, simInput;
+    private EditText packages, simInput;
+    private Slider sizeSlider, ySlider;
+    private boolean loadingLayout;
     private CheckBox debug, discovery, ocrBox;
     private RadioButton layFull, layStrip, layColumn;
 
@@ -303,6 +306,38 @@ public class MainActivity extends Activity {
             public void onNothingSelected(AdapterView<?> parent) {}
         });
 
+        // ---- Etiqueta na tela ----
+        title("Etiqueta na tela", 18);
+        hint("Escolha o formato e ajuste tamanho e altura. A cada ajuste a etiqueta aparece por 6 s "
+                + "com uma corrida de exemplo, para você ver como fica. Cada formato guarda o seu "
+                + "tamanho e a sua altura.");
+        RadioGroup lay = new RadioGroup(this);
+        layStrip = new RadioButton(this);
+        layStrip.setText("Faixa compacta (2 linhas)");
+        layColumn = new RadioButton(this);
+        layColumn.setText("Coluna à direita, dentro do cartão da Uber (mapa livre)");
+        layFull = new RadioButton(this);
+        layFull.setText("Cartão completo (4 quadros, destino e rodapé)");
+        lay.addView(layStrip);
+        lay.addView(layColumn);
+        lay.addView(layFull);
+        col.addView(lay);
+        int lm = sp.getInt(Prefs.K_LAYOUT, 1);
+        (lm == 0 ? layFull : lm == 2 ? layColumn : layStrip).setChecked(true);
+        sizeSlider = new Slider("Tamanho", "%", Prefs.SCALE_MIN, Prefs.SCALE_MAX, 5,
+                v -> commitLayout(Prefs.scaleKey(layoutMode()), v));
+        ySlider = new Slider("Altura (distância do topo)", " dp", 0, 900, 5,
+                v -> commitLayout(Prefs.yKey(layoutMode()), v));
+        hint("Coluna: suba ou desça até o topo da coluna ficar logo abaixo do X do cartão da Uber. "
+                + "Faixa: 30–40 cola no topo da tela.");
+        loadLayoutBars();
+        lay.setOnCheckedChangeListener((g, id) -> {
+            Prefs.sp(this).edit().putInt(Prefs.K_LAYOUT, layoutMode()).apply();
+            loadLayoutBars();
+            preview();
+        });
+        button("Mostrar prévia da etiqueta", v -> preview());
+
         // ---- Simulador ----
         title("Simulador", 18);
         hint("Cole o texto de uma oferta (ou um bloco do telas.txt) e veja o cálculo com o perfil ativo.");
@@ -326,23 +361,6 @@ public class MainActivity extends Activity {
                 sp.getBoolean(Prefs.K_DEBUG, true));
         discovery = check("Modo descoberta: anotar nomes de apps que mostram R$ e km",
                 sp.getBoolean(Prefs.K_DISCOVERY, false));
-        hint("Formato da etiqueta");
-        RadioGroup lay = new RadioGroup(this);
-        layStrip = new RadioButton(this);
-        layStrip.setText("Faixa compacta (2 linhas)");
-        layColumn = new RadioButton(this);
-        layColumn.setText("Coluna à direita, dentro do cartão da Uber (mapa livre)");
-        layFull = new RadioButton(this);
-        layFull.setText("Cartão completo (4 quadros, destino e rodapé)");
-        lay.addView(layStrip);
-        lay.addView(layColumn);
-        lay.addView(layFull);
-        col.addView(lay);
-        int lm = sp.getInt(Prefs.K_LAYOUT, 1);
-        (lm == 0 ? layFull : lm == 2 ? layColumn : layStrip).setChecked(true);
-        overlayY = field("Altura da etiqueta (dp a partir do topo)",
-                "Faixa: 30–40 cola no topo. Coluna: ~350 desce para o espaço vazio à direita do cartão da Uber.",
-                sp.getString(Prefs.K_OVERLAY_Y, "90"));
         packages = field("Apps monitorados (um pacote por linha)", null,
                 sp.getString(Prefs.K_PACKAGES, Prefs.DEFAULT_PACKAGES));
         packages.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
@@ -512,11 +530,10 @@ public class MainActivity extends Activity {
         e.putString(Prefs.K_HOURS, hours.getText().toString());
         e.putString(Prefs.K_BUSY, busy.getText().toString());
         e.putBoolean(Prefs.K_NET, goalNet.isChecked());
-        e.putString(Prefs.K_OVERLAY_Y, overlayY.getText().toString());
         e.putString(Prefs.K_PACKAGES, packages.getText().toString());
         e.putBoolean(Prefs.K_DEBUG, debug.isChecked());
         e.putBoolean(Prefs.K_DISCOVERY, discovery.isChecked());
-        e.putInt(Prefs.K_LAYOUT, layFull.isChecked() ? 0 : layColumn.isChecked() ? 2 : 1);
+        e.putInt(Prefs.K_LAYOUT, layoutMode());
         e.putBoolean(Prefs.K_OCR, ocrBox.isChecked());
         e.apply();
         collectProfile(profiles.get(shown));
@@ -638,6 +655,98 @@ public class MainActivity extends Activity {
             if (s.equalsIgnoreCase(me) || s.equalsIgnoreCase(meShort)) return true;
         }
         return false;
+    }
+
+    // ---- Etiqueta: formato, tamanho e altura ----
+
+    private int layoutMode() {
+        return layFull.isChecked() ? 0 : layColumn.isChecked() ? 2 : 1;
+    }
+
+    private void loadLayoutBars() {
+        loadingLayout = true;
+        int m = layoutMode();
+        sizeSlider.set(Prefs.overlayScalePct(this, m));
+        ySlider.set(Prefs.overlayYdp(this, m));
+        loadingLayout = false;
+    }
+
+    private void commitLayout(String key, int value) {
+        if (loadingLayout) return;
+        Prefs.sp(this).edit().putInt(Prefs.K_LAYOUT, layoutMode()).putInt(key, value).apply();
+        preview();
+    }
+
+    /** Pede ao serviço para mostrar a etiqueta de exemplo (aparece por cima desta tela). */
+    private void preview() {
+        if (!serviceEnabled()) {
+            toast("Ative o Radar na Acessibilidade para ver a prévia");
+            return;
+        }
+        Prefs.sp(this).edit().putLong(Prefs.K_PREVIEW, System.currentTimeMillis()).apply();
+    }
+
+    private interface IntSink { void accept(int v); }
+
+    /** Barra com − e +: arrastar para ajuste grosso, tocar nos botões para ajuste fino. */
+    private final class Slider {
+        final String name, unit;
+        final int min, step;
+        final TextView label;
+        final SeekBar bar;
+        final IntSink onCommit;
+
+        Slider(String name, String unit, int min, int max, int step, IntSink onCommit) {
+            this.name = name;
+            this.unit = unit;
+            this.min = min;
+            this.step = step;
+            this.onCommit = onCommit;
+            LinearLayout row = new LinearLayout(MainActivity.this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(0, dp(8), 0, 0);
+            Button minus = new Button(MainActivity.this);
+            minus.setText("−");
+            Button plus = new Button(MainActivity.this);
+            plus.setText("+");
+            LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(dp(56),
+                    LinearLayout.LayoutParams.WRAP_CONTENT);
+            minus.setLayoutParams(bl);
+            plus.setLayoutParams(new LinearLayout.LayoutParams(bl));
+            label = new TextView(MainActivity.this);
+            label.setTextSize(16);
+            label.setTypeface(Typeface.DEFAULT_BOLD);
+            label.setGravity(android.view.Gravity.CENTER);
+            label.setLayoutParams(new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+            row.addView(minus);
+            row.addView(label);
+            row.addView(plus);
+            col.addView(row);
+            bar = new SeekBar(MainActivity.this);
+            bar.setMax((max - min) / step);
+            col.addView(bar);
+            minus.setOnClickListener(v -> { set(value() - step); commit(); });
+            plus.setOnClickListener(v -> { set(value() + step); commit(); });
+            bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override public void onProgressChanged(SeekBar b, int p, boolean user) { show(); }
+                @Override public void onStartTrackingTouch(SeekBar b) {}
+                @Override public void onStopTrackingTouch(SeekBar b) { commit(); }
+            });
+        }
+
+        int value() { return min + bar.getProgress() * step; }
+
+        void set(int v) {
+            int p = Math.round((v - min) / (float) step);
+            bar.setProgress(Math.max(0, Math.min(bar.getMax(), p)));
+            show();
+        }
+
+        void show() { label.setText(name + ": " + value() + unit); }
+
+        void commit() { onCommit.accept(value()); }
     }
 
     // ---- UI helpers ----

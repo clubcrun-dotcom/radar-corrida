@@ -42,6 +42,13 @@ public final class Prefs {
     public static final String K_CONSENT = "consent_v2";
     public static final String K_OCR = "ocr_enabled";
     public static final String K_PRESET_LIVING = "preset_living_v1";
+    /** Gravado pela tela de ajustes: o serviço mostra a etiqueta de exemplo por alguns segundos. */
+    public static final String K_PREVIEW = "overlay_preview_at";
+    // Tamanho (%) e altura (dp) guardados por formato: 0 = completo, 1 = faixa, 2 = coluna.
+    private static final String[] K_SCALE_MODE = {"overlay_scale_full", "overlay_scale_strip", "overlay_scale_column"};
+    private static final String[] K_Y_MODE = {"overlay_y_full", "overlay_y_strip", "overlay_y_column"};
+    private static final int[] DEF_Y = {90, 35, 350};
+    public static final int SCALE_MIN = 50, SCALE_MAX = 200;
 
     public static final String DEF_FUEL = "6,45";
     public static final String DEF_KMPL = "14";
@@ -232,8 +239,29 @@ public final class Prefs {
 
     public static boolean ocr(Context c) { return sp(c).getBoolean(K_OCR, true); }
 
-    public static int overlayYdp(Context c) {
-        return (int) num(sp(c).getString(K_OVERLAY_Y, "90"), 90);
+    public static int overlayYdp(Context c) { return overlayYdp(c, layout(c)); }
+
+    private static int mode(int m) { return m < 0 || m > 2 ? 1 : m; }
+
+    public static String scaleKey(int m) { return K_SCALE_MODE[mode(m)]; }
+
+    public static String yKey(int m) { return K_Y_MODE[mode(m)]; }
+
+    /** Altura do formato. Na primeira vez, o formato em uso herda a altura que já estava salva. */
+    public static int overlayYdp(Context c, int m) {
+        m = mode(m);
+        SharedPreferences p = sp(c);
+        if (p.contains(K_Y_MODE[m])) return p.getInt(K_Y_MODE[m], DEF_Y[m]);
+        if (layout(c) == m && p.contains(K_OVERLAY_Y)) {
+            return (int) num(p.getString(K_OVERLAY_Y, String.valueOf(DEF_Y[m])), DEF_Y[m]);
+        }
+        return DEF_Y[m];
+    }
+
+    /** Tamanho do formato em % (100 = original). */
+    public static int overlayScalePct(Context c, int m) {
+        int v = sp(c).getInt(K_SCALE_MODE[mode(m)], 100);
+        return Math.max(SCALE_MIN, Math.min(SCALE_MAX, v));
     }
 
     // ---- Números ----

@@ -79,12 +79,14 @@ public class RadarService extends AccessibilityService {
     private final Runnable hide = this::hideAndReset;
 
     private final SharedPreferences.OnSharedPreferenceChangeListener prefsListener =
-            (sp, key) -> reload();
+            (sp, key) -> {
+                if (Prefs.K_PREVIEW.equals(key)) showPreview();
+                else reload();
+            };
 
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
-        overlay = new OverlayCard(this);
         log = new RideLog(this);
         ocr = new ScreenOcr(this);
         day = Prefs.loadDay(this);
@@ -98,11 +100,17 @@ public class RadarService extends AccessibilityService {
         debug = Prefs.debug(this);
         discovery = Prefs.discovery(this);
         ocrEnabled = Prefs.ocr(this);
-        overlayYdp = Prefs.overlayYdp(this);
-        if (overlay != null) {
-            overlay.setNetMode(settings.netGoal);
-            overlay.setMode(Prefs.layout(this));
+        int mode = Prefs.layout(this);
+        overlayYdp = Prefs.overlayYdp(this, mode);
+        float scale = Prefs.overlayScalePct(this, mode) / 100f;
+        if (overlay == null || Math.abs(overlay.scale - scale) > 0.001f) {
+            // Tamanho novo: a etiqueta é montada de novo (os quadros são criados no tamanho final).
+            if (overlay != null) overlay.hide();
+            overlay = new OverlayCard(this, scale);
+            lastSig = "";
         }
+        overlay.setNetMode(settings.netGoal);
+        overlay.setMode(mode);
         applySystemFilter();
     }
 
@@ -397,6 +405,23 @@ public class RadarService extends AccessibilityService {
             if (t.contains("R$") || t.contains("RS") || t.contains(" km") || t.contains("km)")) return true;
         }
         return false;
+    }
+
+    /**
+     * Prévia pedida pela tela de ajustes: uma corrida de exemplo, no formato, tamanho e altura
+     * atuais, por 6 segundos. Não grava nada no registro de corridas.
+     */
+    private void showPreview() {
+        reload();
+        List<Offer> sample = OfferParser.parseAll(java.util.Arrays.asList(
+                "R$ 28,50", "4 min (1,6 km) de distância", "Rua Exemplo, Centro, Niterói",
+                "Viagem de 22 min (12,4 km)", "Avenida Exemplo, Icaraí, Niterói"));
+        if (sample.isEmpty()) return;
+        List<Evaluation> ranked = Ranker.evaluateAndRank(sample, settings);
+        handler.removeCallbacks(hide);
+        overlay.show(ranked.get(0), overlayYdp);
+        lastSig = "";
+        handler.postDelayed(hide, 6000);
     }
 
     private void hideAndReset() {

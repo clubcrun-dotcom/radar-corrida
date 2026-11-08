@@ -49,6 +49,8 @@ final class OverlayCard {
     private static final int TXT_DIM = 0xFFA9B0B8;
 
     private final AccessibilityService svc;
+    /** Tamanho escolhido pelo motorista (1,0 = 100%): multiplica letras, quadros e largura. */
+    final float scale;
     private final WindowManager wm;
     private final Locale br = Locale.forLanguageTag("pt-BR");
 
@@ -130,8 +132,7 @@ final class OverlayCard {
                 value.setLayoutParams(new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, dp(42)));
                 value.setGravity(Gravity.CENTER);
-                value.setAutoSizeTextTypeUniformWithConfiguration(
-                        18, 34, 1, TypedValue.COMPLEX_UNIT_SP);
+                autoSize(value, 18, 34);
             }
             sub = text(13, false, TXT_DIM);
             box.addView(label);
@@ -147,8 +148,9 @@ final class OverlayCard {
         }
     }
 
-    OverlayCard(AccessibilityService svc) {
+    OverlayCard(AccessibilityService svc, float scale) {
         this.svc = svc;
+        this.scale = Math.max(0.5f, Math.min(2f, scale));
         this.wm = (WindowManager) svc.getSystemService(AccessibilityService.WINDOW_SERVICE);
 
         root = new LinearLayout(svc);
@@ -279,7 +281,7 @@ final class OverlayCard {
             kVerdict.setLayoutParams(new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, dp(20)));
             kVerdict.setGravity(Gravity.CENTER);
-            kVerdict.setAutoSizeTextTypeUniformWithConfiguration(9, 15, 1, TypedValue.COMPLEX_UNIT_SP);
+            autoSize(kVerdict, 9, 15);
         }
         kPill.addView(kVerdict);
         column.addView(kPill);
@@ -304,7 +306,7 @@ final class OverlayCard {
             v.setLayoutParams(new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, dp(28)));
             v.setGravity(Gravity.CENTER);
-            v.setAutoSizeTextTypeUniformWithConfiguration(11, 24, 1, TypedValue.COMPLEX_UNIT_SP);
+            autoSize(v, 11, 24);
         }
         column.addView(l);
         column.addView(v);
@@ -326,7 +328,7 @@ final class OverlayCard {
             v.setLayoutParams(new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, dp(34)));
             v.setGravity(Gravity.CENTER);
-            v.setAutoSizeTextTypeUniformWithConfiguration(14, 28, 1, TypedValue.COMPLEX_UNIT_SP);
+            autoSize(v, 14, 28);
         }
         box.addView(l);
         box.addView(v);
@@ -645,7 +647,7 @@ final class OverlayCard {
         if (root.getWidth() == 0 || root.getHeight() == 0) {
             // Recém-desenhada: usa a área estimada (largura toda, ~330 dp de altura).
             int w = svc.getResources().getDisplayMetrics().widthPixels;
-            int top = dp(lastYdp);
+            int top = rawDp(lastYdp);
             return new Rect(0, Math.max(0, top - dp(8)), w, top + dp(330));
         }
         int[] xy = new int[2];
@@ -664,20 +666,20 @@ final class OverlayCard {
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        lp.y = dp(yDp);
+        lp.y = rawDp(yDp);
         lp.horizontalMargin = 0.03f;
         if (mode == MODE_COLUMN) {
             lp.width = dp(66);
             lp.gravity = Gravity.TOP | Gravity.END;
             lp.horizontalMargin = 0f;
-            lp.x = dp(4);
+            lp.x = rawDp(4);
         }
         return lp;
     }
 
     private TextView text(int sp, boolean bold, int color) {
         TextView t = new TextView(svc);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp * scale);
         if (bold) t.setTypeface(Typeface.DEFAULT_BOLD);
         t.setTextColor(color);
         t.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -687,8 +689,23 @@ final class OverlayCard {
         return t;
     }
 
+    /** Medida que acompanha o tamanho escolhido. */
     private int dp(int v) {
+        return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v * scale,
+                svc.getResources().getDisplayMetrics()));
+    }
+
+    /** Medida fixa (posição na tela): a altura não muda quando o tamanho muda. */
+    private int rawDp(int v) {
         return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v,
                 svc.getResources().getDisplayMetrics()));
+    }
+
+    /** Letra que encolhe até caber, na escala escolhida (só Android 8+). */
+    private void autoSize(TextView t, int minSp, int maxSp) {
+        if (android.os.Build.VERSION.SDK_INT < 26) return;
+        int lo = Math.max(6, Math.round(minSp * scale));
+        int hi = Math.max(lo + 1, Math.round(maxSp * scale));
+        t.setAutoSizeTextTypeUniformWithConfiguration(lo, hi, 1, TypedValue.COMPLEX_UNIT_SP);
     }
 }
