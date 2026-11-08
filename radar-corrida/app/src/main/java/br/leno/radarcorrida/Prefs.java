@@ -32,6 +32,8 @@ public final class Prefs {
     public static final String K_DEBUG = "debug_dump";
     public static final String K_DISCOVERY = "discovery";
     public static final String K_OVERLAY_Y = "overlay_y_dp";
+    public static final String K_COMPACT = "overlay_compact";
+    public static final String K_LAYOUT = "overlay_layout";
     public static final String K_GOAL = "daily_goal";
     public static final String K_HOURS = "daily_hours";
     public static final String K_BUSY = "busy_pct";
@@ -225,6 +227,8 @@ public final class Prefs {
     public static boolean debug(Context c) { return sp(c).getBoolean(K_DEBUG, true); }
 
     public static boolean discovery(Context c) { return sp(c).getBoolean(K_DISCOVERY, false); }
+    /** 0 = cartão completo, 1 = faixa compacta (padrão), 2 = coluna à direita. */
+    public static int layout(Context c) { return sp(c).getInt(K_LAYOUT, 1); }
 
     public static boolean ocr(Context c) { return sp(c).getBoolean(K_OCR, true); }
 

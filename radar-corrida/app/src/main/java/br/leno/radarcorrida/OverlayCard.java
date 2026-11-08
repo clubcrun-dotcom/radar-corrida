@@ -53,6 +53,7 @@ final class OverlayCard {
     private final Locale br = Locale.forLanguageTag("pt-BR");
 
     private final LinearLayout root;
+    private final GradientDrawable cardBg;
     private final GradientDrawable headerBg;
     private final TextView verdict;
     private final TextView badge;
@@ -61,6 +62,18 @@ final class OverlayCard {
     private final TextView routeBox;
     private final GradientDrawable routeBg;
     private final LinearLayout list;
+    private final java.util.List<View> fullViews = new java.util.ArrayList<>();
+    // Modo compacto: faixa baixa no topo, deixa o mapa (e a rota até o passageiro) livre.
+    private final LinearLayout compact;
+    private final GradientDrawable cPillBg;
+    private final TextView cVerdict, cDay, cHour, cKm, cProfit, cLine;
+    // Coluna estreita: fica no espaço vazio à direita do cartão da Uber; o mapa fica 100% livre.
+    private final LinearLayout column;
+    private final GradientDrawable kPillBg;
+    private final TextView kVerdict, kRoute, kHour, kKm, kProfit, kPick;
+    /** 0 = cartão completo, 1 = faixa compacta, 2 = coluna à direita. */
+    static final int MODE_FULL = 0, MODE_STRIP = 1, MODE_COLUMN = 2;
+    private int mode = MODE_STRIP;
     private boolean attached;
     private int lastYdp = 90;
     private boolean netMode;
@@ -68,6 +81,22 @@ final class OverlayCard {
 
     /** "HOJE R$ 45/100": progresso da meta, mostrado no canto da faixa do veredito. */
     void setDayInfo(String s) { this.dayInfo = s == null ? "" : s; }
+
+    /** Etiqueta compacta (padrão) ou detalhada (4 quadros + destino + rodapé). */
+    void setMode(int m) {
+        if (m == mode) return;
+        mode = m;
+        applyMode();
+        if (attached) attach(lastYdp);
+    }
+
+    private void applyMode() {
+        for (View v : fullViews) v.setVisibility(mode == MODE_FULL ? View.VISIBLE : View.GONE);
+        compact.setVisibility(mode == MODE_STRIP ? View.VISIBLE : View.GONE);
+        column.setVisibility(mode == MODE_COLUMN ? View.VISIBLE : View.GONE);
+        if (mode != MODE_FULL) list.setVisibility(View.GONE);
+        root.setPadding(0, 0, 0, mode == MODE_FULL ? dp(8) : 0);
+    }
 
     /** Meta em lucro líquido (true) ou faturamento bruto (false): define o quadro de R$/hora. */
     void setNetMode(boolean net) { this.netMode = net; }
@@ -81,7 +110,7 @@ final class OverlayCard {
             box = new LinearLayout(svc);
             box.setOrientation(LinearLayout.VERTICAL);
             box.setGravity(Gravity.CENTER_HORIZONTAL);
-            box.setPadding(dp(4), dp(6), dp(4), dp(6));
+            box.setPadding(dp(3), dp(7), dp(3), dp(7));
             GradientDrawable g = new GradientDrawable();
             g.setColor(BG_TILE);
             g.setCornerRadius(dp(10));
@@ -91,11 +120,20 @@ final class OverlayCard {
             lp.setMargins(dp(3), 0, dp(3), 0);
             box.setLayoutParams(lp);
 
-            label = text(10, true, TXT_DIM);
+            label = text(12, true, TXT_DIM);
             label.setText(title);
             label.setLetterSpacing(0.06f);
-            value = text(21, true, V_NONE);
-            sub = text(11, false, TXT_DIM);
+            value = text(31, true, V_NONE);
+            value.setMaxLines(1);
+            // Números grandes, mas sem cortar: em tela estreita o Android reduz até caber.
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                value.setLayoutParams(new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, dp(42)));
+                value.setGravity(Gravity.CENTER);
+                value.setAutoSizeTextTypeUniformWithConfiguration(
+                        18, 34, 1, TypedValue.COMPLEX_UNIT_SP);
+            }
+            sub = text(13, false, TXT_DIM);
             box.addView(label);
             box.addView(value);
             box.addView(sub);
@@ -115,7 +153,7 @@ final class OverlayCard {
 
         root = new LinearLayout(svc);
         root.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable cardBg = new GradientDrawable();
+        cardBg = new GradientDrawable();
         cardBg.setColor(BG_CARD);
         cardBg.setCornerRadius(dp(16));
         root.setBackground(cardBg);
@@ -125,21 +163,22 @@ final class OverlayCard {
         LinearLayout header = new LinearLayout(svc);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(14), dp(7), dp(14), dp(7));
+        header.setPadding(dp(14), dp(8), dp(14), dp(8));
         headerBg = new GradientDrawable();
         float r = dp(16);
         headerBg.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
         header.setBackground(headerBg);
-        verdict = text(20, true, Color.WHITE);
+        verdict = text(27, true, Color.WHITE);
         verdict.setGravity(Gravity.START);
         verdict.setLayoutParams(new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        badge = text(12, true, Color.WHITE);
+        badge = text(15, true, Color.WHITE);
         badge.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         header.addView(verdict);
         header.addView(badge);
         root.addView(header);
+        fullViews.add(header);
 
         // Quadros
         LinearLayout tiles = new LinearLayout(svc);
@@ -154,9 +193,10 @@ final class OverlayCard {
         tiles.addView(tProfit.box);
         tiles.addView(tTraffic.box);
         root.addView(tiles);
+        fullViews.add(tiles);
 
         // Caixa da rota: no trajeto (verde) / fora da rota (vermelho) / destino (neutro)
-        routeBox = text(14, true, Color.WHITE);
+        routeBox = text(17, true, Color.WHITE);
         routeBox.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         routeBox.setSingleLine(true);
         routeBox.setEllipsize(TextUtils.TruncateAt.END);
@@ -169,19 +209,129 @@ final class OverlayCard {
         rlp.setMargins(dp(8), dp(8), dp(8), 0);
         routeBox.setLayoutParams(rlp);
         root.addView(routeBox);
+        fullViews.add(routeBox);
 
         // Rodapé
-        footer = text(12, false, TXT_DIM);
+        footer = text(14, false, TXT_DIM);
         footer.setPadding(dp(12), dp(7), dp(12), 0);
         footer.setSingleLine(true);
         footer.setEllipsize(TextUtils.TruncateAt.END);
         root.addView(footer);
+        fullViews.add(footer);
 
         // Lista de ofertas simultâneas
         list = new LinearLayout(svc);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(12), dp(4), dp(12), 0);
         root.addView(list);
+
+        // ---- Compacta: [ACEITAR] | R$/h | R$/km | lucro ; embaixo uma linha com destino e busca
+        compact = new LinearLayout(svc);
+        compact.setOrientation(LinearLayout.VERTICAL);
+        compact.setPadding(dp(6), dp(6), dp(6), dp(6));
+        LinearLayout row = new LinearLayout(svc);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout pill = new LinearLayout(svc);
+        pill.setOrientation(LinearLayout.VERTICAL);
+        pill.setGravity(Gravity.CENTER);
+        pill.setPadding(dp(8), dp(6), dp(8), dp(6));
+        cPillBg = new GradientDrawable();
+        cPillBg.setCornerRadius(dp(10));
+        pill.setBackground(cPillBg);
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.MATCH_PARENT, 1.15f);
+        plp.setMargins(0, 0, dp(4), 0);
+        pill.setLayoutParams(plp);
+        cVerdict = text(19, true, Color.WHITE);
+        cVerdict.setMaxLines(1);
+        cDay = text(11, true, Color.WHITE);
+        pill.addView(cVerdict);
+        pill.addView(cDay);
+        row.addView(pill);
+        cHour = compactValue(row, "R$/HORA");
+        cKm = compactValue(row, "R$/KM");
+        cProfit = compactValue(row, "LUCRO R$");
+        compact.addView(row);
+        cLine = text(13, true, Color.WHITE);
+        cLine.setGravity(Gravity.START);
+        cLine.setSingleLine(true);
+        cLine.setEllipsize(TextUtils.TruncateAt.END);
+        cLine.setPadding(dp(4), dp(5), dp(4), 0);
+        compact.addView(cLine);
+        root.addView(compact, 0);
+
+        // ---- Coluna: [ACEITAR] ✔/✘ · R$/h · R$/km · lucro · busca, um embaixo do outro
+        column = new LinearLayout(svc);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setGravity(Gravity.CENTER_HORIZONTAL);
+        column.setPadding(dp(4), dp(5), dp(4), dp(6));
+        LinearLayout kPill = new LinearLayout(svc);
+        kPill.setOrientation(LinearLayout.VERTICAL);
+        kPill.setGravity(Gravity.CENTER);
+        kPill.setPadding(dp(2), dp(6), dp(2), dp(6));
+        kPillBg = new GradientDrawable();
+        kPillBg.setCornerRadius(dp(10));
+        kPill.setBackground(kPillBg);
+        kVerdict = text(15, true, Color.WHITE);
+        kVerdict.setMaxLines(1);
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            kVerdict.setLayoutParams(new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(20)));
+            kVerdict.setGravity(Gravity.CENTER);
+            kVerdict.setAutoSizeTextTypeUniformWithConfiguration(9, 15, 1, TypedValue.COMPLEX_UNIT_SP);
+        }
+        kPill.addView(kVerdict);
+        column.addView(kPill);
+        kRoute = text(12, true, Color.WHITE);
+        kRoute.setPadding(0, dp(3), 0, 0);
+        column.addView(kRoute);
+        kHour = columnValue("R$/H");
+        kKm = columnValue("R$/KM");
+        kProfit = columnValue("LUCRO");
+        kPick = columnValue("BUSCA");
+        root.addView(column, 0);
+        applyMode();
+    }
+
+    private TextView columnValue(String title) {
+        TextView l = text(9, true, TXT_DIM);
+        l.setText(title);
+        l.setPadding(0, dp(6), 0, 0);
+        TextView v = text(22, true, V_NONE);
+        v.setMaxLines(1);
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            v.setLayoutParams(new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(28)));
+            v.setGravity(Gravity.CENTER);
+            v.setAutoSizeTextTypeUniformWithConfiguration(11, 24, 1, TypedValue.COMPLEX_UNIT_SP);
+        }
+        column.addView(l);
+        column.addView(v);
+        return v;
+    }
+
+    /** Coluna da faixa compacta: rótulo pequeno em cima, número grande embaixo. */
+    private TextView compactValue(LinearLayout row, String title) {
+        LinearLayout box = new LinearLayout(svc);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.setLayoutParams(new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        TextView l = text(10, true, TXT_DIM);
+        l.setText(title);
+        TextView v = text(27, true, V_NONE);
+        v.setMaxLines(1);
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            v.setLayoutParams(new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(34)));
+            v.setGravity(Gravity.CENTER);
+            v.setAutoSizeTextTypeUniformWithConfiguration(14, 28, 1, TypedValue.COMPLEX_UNIT_SP);
+        }
+        box.addView(l);
+        box.addView(v);
+        row.addView(box);
+        return v;
     }
 
     /** Uma oferta. */
@@ -193,22 +343,55 @@ final class OverlayCard {
         pulseIfGood(e);
     }
 
-    private android.animation.ObjectAnimator pulse;
+    private android.animation.ValueAnimator pulse;
 
-    /** Corrida boa: o cartão pisca 3 vezes para chamar o olho, sem precisar ler. */
+    /**
+     * Os números ficam SEMPRE parados na tela. Só a faixa do veredito e a borda do cartão
+     * piscam (verde forte ↔ verde claro, vermelho ↔ vermelho claro) por uns 4 segundos,
+     * para puxar o olho; depois ficam na cor fixa. AVALIAR (amarelo) não pisca.
+     */
     private void pulseIfGood(Evaluation e) {
         stopPulse();
-        if (e.verdict != Evaluation.Verdict.GOOD) return;
-        pulse = android.animation.ObjectAnimator.ofFloat(root, "alpha", 1f, 0.35f, 1f);
-        pulse.setDuration(380);
-        pulse.setRepeatCount(2);
+        final int base, bright;
+        if (e.verdict == Evaluation.Verdict.GOOD) { base = C_GOOD; bright = 0xFF00E676; }
+        else if (e.verdict == Evaluation.Verdict.BAD) { base = C_BAD; bright = 0xFFFF1744; }
+        else {
+            cardBg.setStroke(dp(3), C_OK);
+            return;
+        }
+        cardBg.setStroke(dp(4), base);
+        pulse = android.animation.ValueAnimator.ofArgb(base, bright);
+        pulse.setDuration(350);
+        pulse.setRepeatMode(android.animation.ValueAnimator.REVERSE);
+        pulse.setRepeatCount(11);
+        pulse.addUpdateListener(a -> {
+            int c = (int) a.getAnimatedValue();
+            headerBg.setColor(c);
+            cPillBg.setColor(c);
+            kPillBg.setColor(c);
+            cardBg.setStroke(dp(4), c);
+        });
+        pulse.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator a) {
+                headerBg.setColor(base);
+                cPillBg.setColor(base);
+                kPillBg.setColor(base);
+                cardBg.setStroke(dp(4), base);
+            }
+        });
         pulse.start();
     }
 
     private void stopPulse() {
-        if (pulse != null) pulse.cancel();
+        if (pulse != null) {
+            // Sem listeners antes de cancelar: senão o fim da animação antiga pintaria a cor
+            // do veredito anterior por cima do novo.
+            pulse.removeAllListeners();
+            pulse.removeAllUpdateListeners();
+            pulse.cancel();
+        }
         pulse = null;
-        root.setAlpha(1f);
     }
 
     /**
@@ -231,7 +414,7 @@ final class OverlayCard {
             row.setText((i + 1) + "º  " + e.compactLine());
             list.addView(row);
         }
-        list.setVisibility(View.VISIBLE);
+        list.setVisibility(mode == MODE_FULL ? View.VISIBLE : View.GONE);
         attach(yDp);
         pulseIfGood(best);
     }
@@ -303,6 +486,47 @@ final class OverlayCard {
             if (e.offer.pickupEstimated) f.append(" (estimada)");
         }
         footer.setText(f.toString());
+
+        // ---- Faixa compacta
+        cPillBg.setColor(c);
+        cVerdict.setTextColor(fg);
+        cDay.setTextColor(fg);
+        cVerdict.setText(title.replace("MELHOR: ", ""));
+        cDay.setText(dayInfo);
+        cDay.setVisibility(dayInfo.isEmpty() ? View.GONE : View.VISIBLE);
+        double ph = netMode ? e.profitPerHour : e.rsPerHour;
+        cHour.setText(String.format(br, "%.0f", ph));
+        cHour.setTextColor(color(netMode ? e.markProfitHour : e.markHour));
+        cKm.setText(String.format(br, "%.2f", e.rsPerKm));
+        cKm.setTextColor(color(e.markKm));
+        cProfit.setText(String.format(br, "%.0f", e.profit));
+        cProfit.setTextColor(color(e.markProfit));
+        StringBuilder cl = new StringBuilder();
+        if (e.routeConfigured && e.routeHit != null) cl.append("✔ ");
+        else if (e.routeConfigured) cl.append("✘ ");
+        cl.append(dest.isEmpty() ? "destino não lido" : dest);
+        if (e.offer.pickupKm > 0) cl.append(String.format(br, " · busca %.1f km %.0f min",
+                e.offer.pickupKm, e.offer.pickupMin));
+        cLine.setText(cl.toString());
+        cLine.setTextColor(e.routeConfigured && e.routeHit != null ? V_GOOD
+                : e.routeConfigured ? V_BAD : Color.WHITE);
+
+        // ---- Coluna
+        kPillBg.setColor(c);
+        kVerdict.setTextColor(fg);
+        kVerdict.setText(e.verdictLabelShort());
+        if (e.routeConfigured && e.routeHit != null) { kRoute.setText("✔ rota"); kRoute.setTextColor(V_GOOD); }
+        else if (e.routeConfigured) { kRoute.setText("✘ rota"); kRoute.setTextColor(V_BAD); }
+        else kRoute.setText("");
+        kRoute.setVisibility(e.routeConfigured ? View.VISIBLE : View.GONE);
+        kHour.setText(String.format(br, "%.0f", ph));
+        kHour.setTextColor(color(netMode ? e.markProfitHour : e.markHour));
+        kKm.setText(String.format(br, "%.2f", e.rsPerKm));
+        kKm.setTextColor(color(e.markKm));
+        kProfit.setText(String.format(br, "%.0f", e.profit));
+        kProfit.setTextColor(color(e.markProfit));
+        kPick.setText(e.offer.pickupKm > 0 ? String.format(br, "%.1f", e.offer.pickupKm) : "–");
+        kPick.setTextColor(Color.WHITE);
     }
 
     /**
@@ -442,6 +666,12 @@ final class OverlayCard {
         lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
         lp.y = dp(yDp);
         lp.horizontalMargin = 0.03f;
+        if (mode == MODE_COLUMN) {
+            lp.width = dp(66);
+            lp.gravity = Gravity.TOP | Gravity.END;
+            lp.horizontalMargin = 0f;
+            lp.x = dp(4);
+        }
         return lp;
     }
 

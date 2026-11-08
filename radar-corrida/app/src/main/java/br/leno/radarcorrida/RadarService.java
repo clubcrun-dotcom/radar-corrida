@@ -99,7 +99,10 @@ public class RadarService extends AccessibilityService {
         discovery = Prefs.discovery(this);
         ocrEnabled = Prefs.ocr(this);
         overlayYdp = Prefs.overlayYdp(this);
-        if (overlay != null) overlay.setNetMode(settings.netGoal);
+        if (overlay != null) {
+            overlay.setNetMode(settings.netGoal);
+            overlay.setMode(Prefs.layout(this));
+        }
         applySystemFilter();
     }
 
@@ -279,7 +282,9 @@ public class RadarService extends AccessibilityService {
         lastFromOcr = fromOcr;
 
         StringBuilder sigB = new StringBuilder();
-        for (Offer o : offers) sigB.append(o.signature()).append('#');
+        // Sem o destino: com a etiqueta em cima do cartão, o fim do endereço pode sumir da leitura,
+        // e isso não é oferta nova (não repisca nem registra de novo).
+        for (Offer o : offers) sigB.append(o.numbersKey()).append('#');
         String sig = sigB.toString();
 
         if (!sig.equals(lastSig) || !overlay.isShowing()) {

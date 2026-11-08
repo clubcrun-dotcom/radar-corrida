@@ -49,6 +49,7 @@ public class MainActivity extends Activity {
     private CheckBox pIncludePickup;
     private EditText overlayY, packages, simInput;
     private CheckBox debug, discovery, ocrBox;
+    private RadioButton layFull, layStrip, layColumn;
 
     private List<Profile> profiles;
     private int shown;
@@ -325,7 +326,23 @@ public class MainActivity extends Activity {
                 sp.getBoolean(Prefs.K_DEBUG, true));
         discovery = check("Modo descoberta: anotar nomes de apps que mostram R$ e km",
                 sp.getBoolean(Prefs.K_DISCOVERY, false));
-        overlayY = field("Altura da etiqueta (dp a partir do topo)", null, sp.getString(Prefs.K_OVERLAY_Y, "90"));
+        hint("Formato da etiqueta");
+        RadioGroup lay = new RadioGroup(this);
+        layStrip = new RadioButton(this);
+        layStrip.setText("Faixa compacta (2 linhas)");
+        layColumn = new RadioButton(this);
+        layColumn.setText("Coluna à direita, dentro do cartão da Uber (mapa livre)");
+        layFull = new RadioButton(this);
+        layFull.setText("Cartão completo (4 quadros, destino e rodapé)");
+        lay.addView(layStrip);
+        lay.addView(layColumn);
+        lay.addView(layFull);
+        col.addView(lay);
+        int lm = sp.getInt(Prefs.K_LAYOUT, 1);
+        (lm == 0 ? layFull : lm == 2 ? layColumn : layStrip).setChecked(true);
+        overlayY = field("Altura da etiqueta (dp a partir do topo)",
+                "Faixa: 30–40 cola no topo. Coluna: ~350 desce para o espaço vazio à direita do cartão da Uber.",
+                sp.getString(Prefs.K_OVERLAY_Y, "90"));
         packages = field("Apps monitorados (um pacote por linha)", null,
                 sp.getString(Prefs.K_PACKAGES, Prefs.DEFAULT_PACKAGES));
         packages.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
@@ -499,6 +516,7 @@ public class MainActivity extends Activity {
         e.putString(Prefs.K_PACKAGES, packages.getText().toString());
         e.putBoolean(Prefs.K_DEBUG, debug.isChecked());
         e.putBoolean(Prefs.K_DISCOVERY, discovery.isChecked());
+        e.putInt(Prefs.K_LAYOUT, layFull.isChecked() ? 0 : layColumn.isChecked() ? 2 : 1);
         e.putBoolean(Prefs.K_OCR, ocrBox.isChecked());
         e.apply();
         collectProfile(profiles.get(shown));

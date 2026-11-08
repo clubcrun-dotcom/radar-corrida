@@ -27,6 +27,12 @@ public final class Offer {
     }
 
     /** Assinatura usada para não reprocessar a mesma oferta a cada evento de tela. */
+    /** Igual à assinatura, mas sem o destino: a leitura por imagem às vezes corta o fim do endereço. */
+    public String numbersKey() {
+        return String.format(java.util.Locale.ROOT, "%.2f|%.2f|%.0f|%.2f|%.0f",
+                fare, pickupKm, pickupMin, tripKm, tripMin);
+    }
+
     public String signature() {
         return String.format(java.util.Locale.ROOT, "%.2f|%.2f|%.0f|%.2f|%.0f|%s",
                 fare, pickupKm, pickupMin, tripKm, tripMin, destination);
